@@ -1,6 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { assertCan, can, canAssignRole, inviteMemberSchema, PLANS, getPlan } from '@forms/shared';
+import {
+  assertCan,
+  can,
+  canAssignRole,
+  downgradeBloqueado,
+  findPlan,
+  getPlan,
+  inviteMemberSchema,
+  PLANS,
+} from '@forms/shared';
 import { getAuth, requireAuth, requireVerifiedEmail, subjectOf, withRequestTenant } from '../http/context.js';
 import { conflict, forbidden, notFound } from '../http/errors.js';
 import {
@@ -11,6 +20,7 @@ import {
 } from '../db/repositories.js';
 import { generateOpaqueToken, hashToken } from '../auth/hashing.js';
 import { invitationEmail, sendMail } from '../mail/mailer.js';
+import { assertCanAddMember, checkDowngrade, usageSummary } from '../services/usage-service.js';
 
 const INVITATION_TTL_DAYS = 7;
 
@@ -118,6 +128,10 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
     const expiresAt = new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     const result = await withRequestTenant(request, async (ctx) => {
+      // Convite pendente já ocupa uma vaga: senão daria para convidar trinta
+      // pessoas num plano de três e deixar o limite estourar no aceite.
+      await assertCanAddMember(ctx);
+
       const organization = await organizationsRepository.findCurrent(ctx);
       if (!organization) throw notFound();
 
@@ -170,6 +184,44 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       role: result.invitation.role,
       expiresAt: result.invitation.expiresAt,
     });
+  });
+
+  /**
+   * Uso do ciclo vigente.
+   *
+   * É o que alimenta os banners de 80%, de buffer e de conta suspensa. Vem com
+   * os avisos já calculados para que frontend e e-mail não reimplementem a
+   * mesma regra de formas ligeiramente diferentes.
+   */
+  app.get('/usage', async (request) => {
+    const subject = subjectOf(request);
+    assertCan(subject, 'org:read');
+
+    return withRequestTenant(request, (ctx) => usageSummary(ctx));
+  });
+
+  /**
+   * O que impede a troca para um plano menor.
+   *
+   * A tela chama isto ANTES de oferecer o downgrade, para mostrar o checklist
+   * em vez de deixar o cliente descobrir no meio do checkout. Nada é apagado
+   * automaticamente — a lista é para ele decidir.
+   */
+  app.get('/plans/:code/downgrade-check', async (request) => {
+    const subject = subjectOf(request);
+    assertCan(subject, 'billing:read');
+
+    const { code } = z.object({ code: z.string().max(40) }).parse(request.params);
+    if (!findPlan(code)) throw notFound();
+
+    const blockers = await withRequestTenant(request, (ctx) => checkDowngrade(ctx, code));
+
+    return {
+      targetPlanCode: code,
+      allowed: blockers.length === 0,
+      blockers,
+      copy: blockers.length > 0 ? downgradeBloqueado({ targetPlanCode: code, blockers }) : null,
+    };
   });
 
   app.get('/audit-logs', async (request) => {

@@ -87,7 +87,10 @@ const ORGS: OrgSpec[] = [
     id: '11111111-1111-4111-8111-111111111111',
     name: 'Agência Alfa',
     slug: 'agencia-alfa',
-    planCode: 'pro',
+    // Business (formulários ilimitados) de propósito: a suíte de integração
+    // cria dezenas de formulários por execução, e o enforcement de quota é
+    // exercitado trocando o plano dentro do próprio teste.
+    planCode: 'business',
     primaryColor: '#2563eb',
     owner: { email: 'owner@alfa.test', name: 'Ana Owner' },
     editor: { email: 'editor@alfa.test', name: 'Edu Editor' },

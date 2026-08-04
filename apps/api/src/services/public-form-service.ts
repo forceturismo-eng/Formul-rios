@@ -6,6 +6,7 @@ import { responsesRepository } from '../db/repositories.js';
 import { encryptResponseData } from '../crypto/envelope.js';
 import { verifyPassword } from '../auth/hashing.js';
 import { AppError, notFound, validationError } from '../http/errors.js';
+import { evaluateResponseQuota, incrementResponseCount, loadUsage } from './usage-service.js';
 
 /**
  * O lado público: renderizar e receber.
@@ -188,6 +189,15 @@ export async function submitPublicForm(params: SubmitParams): Promise<SubmitResu
     const validacao = validateResponse(definition, params.values);
     if (!validacao.ok) throw validationError(validacao.errors, 'Revise os campos destacados.');
 
+    // A cota de respostas é avaliada DEPOIS da validação, para que uma
+    // submissão inválida não consuma a cortesia de 48h de quem está no limite.
+    const { outcome, isBuffered } = await evaluateResponseQuota(ctx);
+    if (!outcome.allowed) {
+      // O respondente não tem nada com a relação comercial do cliente conosco:
+      // a mensagem é a mesma de um formulário fechado por qualquer motivo.
+      throw new AppError('forbidden', 'Este formulário não está recebendo respostas no momento.');
+    }
+
     // Cifra antes de tocar o banco. A resposta em claro não existe fora desta
     // função — nem em log, nem em coluna.
     const { dataEncrypted, dataKeyEncrypted } = encryptResponseData(ctx.organizationId, validacao.values);
@@ -200,7 +210,12 @@ export async function submitPublicForm(params: SubmitParams): Promise<SubmitResu
       ipHash: params.ipHash,
       userAgentHash: params.userAgentHash,
       status: 'new',
+      // Recebida durante a cortesia. Fica marcada, mas NUNCA é apagada: some
+      // da contagem, não do banco (seção 6.2).
+      isBuffered,
     });
+
+    await incrementResponseCount(ctx, (await loadUsage(ctx)).periodStart);
 
     // Anexa os arquivos que já haviam sido enviados a esta resposta.
     const idsDeArquivo = Object.values(validacao.values)

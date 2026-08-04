@@ -9,6 +9,7 @@ import { notFound, validationError } from '../http/errors.js';
 import { buildObjectKey, keyBelongsTo, storage, verifySignedKey } from '../storage/provider.js';
 import { sanitizeFilename, validateUpload } from '../storage/upload-validation.js';
 import { loadFormFor } from '../services/forms-service.js';
+import { assertCanUpload, incrementStorage } from '../services/usage-service.js';
 
 /**
  * Upload e download de arquivos.
@@ -103,10 +104,15 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         });
         if (!check.ok) throw validationError({ file: [check.reason as string] });
 
+        // Armazenamento cheio bloqueia o envio novo e mantém o existente
+        // acessível (seção 6.2).
+        await assertCanUpload(ctx, bytes.byteLength);
+
         // O caminho começa pelo organization_id: o isolamento entre empresas
         // não para no banco, vale para o bucket também.
         const key = `${buildObjectKey(ctx.organizationId, 'respostas')}.${check.safeExtension}`;
         await storage().put(key, bytes, parte.mimetype);
+        await incrementStorage(ctx, bytes.byteLength);
 
         return filesRepository.create(ctx, {
           responseId: null,
@@ -154,8 +160,11 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!check.ok) throw validationError({ file: [check.reason as string] });
 
+      await assertCanUpload(ctx, bytes.byteLength);
+
       const key = `${buildObjectKey(auth.organizationId, 'respostas')}.${check.safeExtension}`;
       await storage().put(key, bytes, parte.mimetype);
+      await incrementStorage(ctx, bytes.byteLength);
 
       return filesRepository.create(ctx, {
         responseId: null,

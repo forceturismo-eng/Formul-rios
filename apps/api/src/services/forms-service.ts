@@ -17,6 +17,7 @@ import { Prisma } from '@prisma/client';
 import type { TenantContext } from '../db/tenant.js';
 import { auditLogsRepository, formVersionsRepository, formsRepository } from '../db/repositories.js';
 import { AppError, conflict, notFound, validationError } from '../http/errors.js';
+import { assertCanCreateForm } from './usage-service.js';
 
 /**
  * Regras dos formulários.
@@ -132,6 +133,10 @@ export interface CreateFormParams {
 
 export async function createForm(params: CreateFormParams) {
   const { ctx, subject } = params;
+
+  // Enforcement ANTES da ação, no backend. A UI esconder o botão é cortesia;
+  // quem impede a criação é esta linha (seção 6.2).
+  await assertCanCreateForm(ctx);
 
   const definition = params.definition ? formSchema.parse(params.definition) : SCHEMA_INICIAL;
   assertSchemaFitsPlan(definition, await currentPlanCode(ctx));
