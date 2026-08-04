@@ -3,9 +3,10 @@
 Gerenciamento de formulários online no modelo Jotform, vendido por assinatura
 para múltiplas empresas, com foco no mercado brasileiro.
 
-> **Estado atual: Fase 1 concluída.** Fundação multi-tenant, autenticação,
-> RBAC e a suíte de isolamento. O builder de formulários (Fase 2), a
-> comercialização (Fase 3) e os domínios próprios (Fase 4) ainda não existem.
+> **Estado atual: Fases 1 e 2 concluídas.** Fundação multi-tenant,
+> autenticação, RBAC, formulários com versionamento, renderizador público,
+> uploads, painel de recebimentos e exportações em fila. A comercialização
+> (Fase 3) e os domínios próprios (Fase 4) ainda não existem.
 > Ver [Roteiro](#roteiro).
 
 ---
@@ -20,6 +21,7 @@ docker compose up -d          # postgres, redis, minio, mailhog, caddy
 npm install
 npm run setup                 # papéis do banco + migrations + seed
 npm run dev                   # API em http://localhost:3333
+npm run dev -w @forms/worker  # workers das filas, em outro terminal
 ```
 
 `npm run setup` faz três coisas, nesta ordem, e todas são idempotentes:
@@ -31,9 +33,13 @@ npm run dev                   # API em http://localhost:3333
 
 ### Sem Docker
 
-Se você já tem PostgreSQL 16+ rodando, só aponte `POSTGRES_SUPERUSER_URL`,
-`DATABASE_URL` e `MIGRATE_DATABASE_URL` para ele e rode `npm run setup`. Redis,
-MinIO e Mailhog só passam a ser necessários na Fase 2.
+Se você já tem PostgreSQL 16+ e Redis rodando, aponte `POSTGRES_SUPERUSER_URL`,
+`DATABASE_URL`, `MIGRATE_DATABASE_URL` e `REDIS_URL` para eles e rode
+`npm run setup`.
+
+Os arquivos usam um driver de disco local por padrão (`.storage/`), então MinIO
+só é necessário quando você quiser exercitar o caminho S3 de verdade. O driver
+fica atrás da interface `StorageProvider` — trocar um pelo outro é uma linha.
 
 ### Contas de teste
 
@@ -60,9 +66,9 @@ npm run test:unit       # regras puras, sem banco
 
 | Suíte | O que cobre |
 |---|---|
-| `unit` | RBAC, planos, aritmética de centavos, CPF/CNPJ, guarda de SQL cru |
-| `isolation` | Fronteira entre empresas: HTTP, banco, tokens e `Host` |
-| `integration` | Registro, login, refresh rotativo, rate limit |
+| `unit` | RBAC, planos, aritmética de centavos, CPF/CNPJ, runtime do formulário, validação de upload, guarda de SQL cru |
+| `isolation` | Fronteira entre empresas: HTTP, banco, tokens, `Host`, criptografia, arquivos e exportações |
+| `integration` | Autenticação, ciclo do formulário, submissão pública, recebimentos e exportação |
 
 A suíte de isolamento sobe a **mesma** aplicação que roda em produção, contra o
 **mesmo** Postgres com RLS ligado. Nada é substituído por mock: um teste de
@@ -107,6 +113,16 @@ fora de `db/tenant.ts` e `db/bootstrap.ts` quebra o lint **e** um teste.
   tenant.
 - `audit_logs` sem `UPDATE`/`DELETE` para o papel da aplicação.
 - Nenhum papel que faz login tem `BYPASSRLS`.
+- A resposta cifrada da Empresa A não decifra com a chave da Empresa B, nem
+  trocando a chave de dados entre as duas.
+- Formulários, respostas, comentários, atribuições, exportações e arquivos da
+  outra empresa: 404 na leitura, na escrita e na exportação.
+- Submissão pública cai na empresa dona do formulário, mesmo com um token de
+  outra empresa no header.
+- Caminho no bucket sempre prefixado pelo `organization_id`, e download só por
+  URL assinada não expirada.
+- O worker de exportação roda sob contexto de tenant: exportar formulário
+  alheio falha em vez de gerar arquivo vazio.
 
 ---
 
@@ -120,14 +136,18 @@ apps/
       config/       env validado com Zod
       db/           prisma, contexto de tenant, bootstrap, repositórios
       http/         erros, contexto de request
+      crypto/       envelope encryption das respostas, redação de PII
       mail/         mailer (memória na Fase 1)
-      routes/       auth, organizações, recursos
-      services/     regras de autenticação
-  web/          React + Vite (Fase 2)
-  worker/       BullMQ (Fase 2)
+      queue/        filas BullMQ e worker de exportação
+      routes/       auth, organizações, formulários, respostas, arquivos, público
+      services/     regras de autenticação, formulários, submissão, recebimentos
+      storage/      StorageProvider e validação de upload
+  web/          React + Vite (Fase 3)
+  worker/       processo dos workers BullMQ
 packages/
-  shared/       planos, RBAC, schemas Zod, formatadores BRL, validações BR
-  ui/           design system (Fase 2)
+  shared/       planos, RBAC, schemas Zod, runtime do formulário,
+                formatadores BRL, validações BR
+  ui/           design system (Fase 3)
 prisma/         schema, migrations (RLS incluso), seed
 infra/          docker-compose, Caddyfile, Dockerfile
 tests/          unit, integration, isolation
@@ -142,12 +162,12 @@ docs/adr/       decisões arquiteturais
 |---|---|---|---|
 | `app_runtime` | sim | **não** | A aplicação. É quem sofre o RLS. |
 | `app_migrator` | sim | **não** | Dono das tabelas. Migrations e seeds. |
-| `app_bootstrap` | **não** | sim | Dono de três funções `SECURITY DEFINER`. |
+| `app_bootstrap` | **não** | sim | Dono das funções `SECURITY DEFINER` de bootstrap. |
 
 `app_bootstrap` é o único papel com `BYPASSRLS` e existe por um motivo
 específico: `SECURITY DEFINER` **não** contorna RLS, e com
 `FORCE ROW LEVEL SECURITY` nem o dono da tabela escapa. Ele não faz login,
-recebe `SELECT` em apenas quatro tabelas, e `app_runtime` não é membro dele.
+recebe `SELECT` em apenas cinco tabelas, e `app_runtime` não é membro dele.
 O raciocínio completo está em
 [`docs/adr/0002`](docs/adr/0002-funcoes-de-bootstrap.md).
 
@@ -167,7 +187,7 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 
 ---
 
-## API (Fase 1)
+## API
 
 ### Autenticação — `/v1/auth`
 
@@ -182,6 +202,38 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | POST | `/accept-invitation` | Cria o vínculo com a empresa |
 | POST | `/switch-organization` | Troca de workspace |
 | GET | `/me` | Contexto autenticado |
+
+### Formulários — `/v1`
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET/POST | `/forms` | Lista o que o usuário pode ver; cria em rascunho |
+| GET | `/forms/:id/full` | Formulário com definição e tema |
+| PATCH | `/forms/:id` | Grava; exige `expectedRevision` (lock otimista) |
+| POST | `/forms/:id/publish` | Congela o schema numa `form_version` |
+| POST | `/forms/:id/archive` \| `/restore` \| `/duplicate` | |
+| GET | `/forms/:id/versions` | Histórico de publicações |
+| POST | `/forms/validate-schema` | Valida sem gravar |
+
+### Recebimentos — `/v1`
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/forms/:id/responses` | Filtros, busca no conteúdo cifrado, paginação |
+| GET | `/responses/:id/full` | Resposta decifrada |
+| PATCH/DELETE | `/responses/:id` | Status, marcação; soft delete |
+| GET/POST | `/responses/:id/comments` | Comentários com @menção |
+| POST | `/responses/:id/assignments` | Atribuição a um membro |
+| POST/GET | `/forms/:id/exports` | Pede exportação (202) e lista pedidos |
+| GET | `/exports/:id/download-url` | URL assinada, 5 minutos |
+
+### Público — sem autenticação, servido em qualquer domínio
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/f/:slug` | Formulário publicado + branding da empresa |
+| POST | `/f/:slug/submit` | Submissão com honeypot e rate limit |
+| POST | `/f/:slug/upload` | Anexo, antes da submissão |
 
 ### Recursos — `/v1`
 
@@ -212,6 +264,15 @@ catálogo público `plans`.
 
 ## Segurança
 
+- **Respostas cifradas em repouso** — AES-256-GCM com envelope encryption:
+  chave de dados por resposta, cifrada por uma chave derivada por HKDF do
+  `organization_id`. A chave que abre uma empresa não abre a outra, mesmo com
+  acesso ao banco inteiro.
+- **Uploads** — whitelist de MIME, conferência de magic bytes, limite por
+  plano, nome aleatório no storage, bucket privado, download só por URL
+  assinada e sempre com `Content-Disposition: attachment`.
+- **Anti-spam** — honeypot que responde 201 (o robô não aprende nada), rate
+  limit por IP no envio e na leitura do formulário público.
 - **Senhas** — Argon2id (19 MiB, 2 iterações). E-mail inexistente paga o mesmo
   custo, contra enumeração por tempo. Verificação contra senhas vazadas.
 - **Sessões** — access de 15 min no header; refresh de 30 dias em cookie
@@ -245,8 +306,10 @@ catálogo público `plans`.
 
 - [x] **Fase 1 — Fundação.** Monorepo, RLS, autenticação, RBAC, suíte de
       isolamento.
-- [ ] **Fase 2 — Produto.** Builder drag-and-drop, renderizador público,
-      submissão, uploads, painel de recebimentos, exportações em fila.
+- [x] **Fase 2 — Produto (backend).** Schema de formulário, versionamento,
+      renderizador público, submissão, uploads, painel de recebimentos,
+      exportações em fila. O builder drag-and-drop e o app React entram junto
+      com o frontend, na Fase 3.
 - [ ] **Fase 3 — Comercialização.** Planos, quotas com buffer de 48h,
       `AsaasProvider`, boleto/Pix/cartão, NFS-e, dunning, reconciliação diária,
       página de preços e checkout.

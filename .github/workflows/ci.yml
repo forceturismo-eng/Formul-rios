@@ -16,6 +16,15 @@ jobs:
     timeout-minutes: 20
 
     services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
       postgres:
         image: postgres:16-alpine
         env:
@@ -44,6 +53,7 @@ jobs:
       CNAME_DOMAIN: custom.formularios.local
       APP_URL: http://localhost:5173
       API_URL: http://localhost:3333
+      REDIS_URL: redis://localhost:6379
 
     steps:
       - uses: actions/checkout@v4

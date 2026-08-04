@@ -3,7 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./src/main.ts",
   "scripts": {
-    "dev": "echo 'Workers entram na Fase 2 (exportações, e-mail, IA, DNS, cobrança, purga).' && exit 0"
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@forms/api": "*",
+    "bullmq": "^5.34.0"
   }
 }

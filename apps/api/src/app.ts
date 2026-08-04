@@ -2,14 +2,17 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
 import { authRoutes } from './routes/auth.js';
+import { fileRoutes } from './routes/files.js';
 import { formRoutes } from './routes/forms.js';
 import { organizationRoutes, planRoutes } from './routes/organizations.js';
 import { publicFormRoutes } from './routes/public-forms.js';
 import { resourceRoutes } from './routes/resources.js';
+import { responseRoutes } from './routes/responses.js';
 
 /**
  * Montagem da aplicação.
@@ -85,6 +88,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     parseOptions: { httpOnly: true, sameSite: 'lax' },
   });
 
+  await app.register(multipart, {
+    limits: {
+      // Teto absoluto do processo, acima do maior plano (Enterprise, 1 GB).
+      // O limite POR PLANO é aplicado depois, quando já sabemos quem enviou —
+      // aqui o objetivo é só não deixar um upload infinito comer a memória.
+      fileSize: 1024 * 1024 * 1024,
+      files: 1,
+      fields: 20,
+    },
+  });
+
   await app.register(rateLimit, {
     global: true,
     max: 300,
@@ -102,11 +116,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   // clientes. Sem prefixo /v1: a URL /f/<slug> é divulgada pelo cliente e
   // precisa ser curta e estável.
   await app.register(publicFormRoutes);
+  await app.register(fileRoutes);
 
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(planRoutes, { prefix: '/v1' });
   await app.register(organizationRoutes, { prefix: '/v1' });
   await app.register(formRoutes, { prefix: '/v1' });
+  await app.register(responseRoutes, { prefix: '/v1' });
   await app.register(resourceRoutes, { prefix: '/v1' });
 
   return app;

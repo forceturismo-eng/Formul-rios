@@ -127,6 +127,15 @@ enum AssignmentStatus {
   @@map("assignment_status")
 }
 
+enum ExportStatus {
+  pending
+  processing
+  done
+  failed
+
+  @@map("export_status")
+}
+
 enum CustomDomainType {
   subdomain
   apex
@@ -192,6 +201,7 @@ model Organization {
   webhooks          Webhook[]
   webhookDeliveries WebhookDelivery[]
   customDomains     CustomDomain[]
+  exports           Export[]
   auditLogs         AuditLog[]
 
   @@index([deletedAt])
@@ -552,6 +562,7 @@ model Form {
   responses   Response[]
   webhooks    Webhook[]
   aiAnalyses  AiAnalysis[]
+  exports     Export[]
 
   @@index([organizationId, status])
   @@index([organizationId, deletedAt])
@@ -770,6 +781,33 @@ model WebhookDelivery {
 
   @@index([organizationId, webhookId])
   @@map("webhook_deliveries")
+}
+
+/// Exportação de respostas. O arquivo é gerado por um worker e entregue por
+/// URL assinada com validade curta — nunca por link permanente, porque o
+/// conteúdo é o dado mais sensível que o cliente tem conosco.
+model Export {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  formId         String       @map("form_id") @db.Uuid
+  requestedBy    String?      @map("requested_by") @db.Uuid
+  format         String       @db.VarChar(10)
+  status         ExportStatus @default(pending)
+  filtersJson    Json         @default("{}") @map("filters_json")
+
+  s3Key       String?   @map("s3_key")
+  rowCount    Int?      @map("row_count")
+  error       String?
+  /// Depois disto o arquivo é apagado pelo job de limpeza.
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  form         Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("exports")
 }
 
 /// Domínio de cliente. Serve SOMENTE renderização pública de formulário

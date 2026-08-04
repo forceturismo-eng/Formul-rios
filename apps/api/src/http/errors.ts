@@ -80,6 +80,15 @@ export function registerErrorHandler(app: {
       return;
     }
 
+    // O @fastify/multipart estoura antes de sabermos o plano de quem enviou —
+    // este é o teto absoluto do processo, não o limite do plano.
+    if (error.code === 'FST_REQ_FILE_TOO_LARGE') {
+      void reply
+        .status(413)
+        .send(body('validation_error', 'Esse arquivo é grande demais. Envie um arquivo menor.'));
+      return;
+    }
+
     // Rate limit e erros de parsing do próprio Fastify já chegam com statusCode.
     if (typeof error.statusCode === 'number' && error.statusCode < 500) {
       const code: ErrorCode = error.statusCode === 429 ? 'rate_limited' : 'validation_error';
