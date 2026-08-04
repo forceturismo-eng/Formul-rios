@@ -1,0 +1,45 @@
+{
+  "name": "formularios-saas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @forms/shared",
+    "build": "npm run build:shared && npm run build -w @forms/api",
+    "dev": "npm run build:shared && npm run dev -w @forms/api",
+    "typecheck": "npm run build:shared && tsc -b --pretty && tsc -p tsconfig.tests.json",
+    "lint": "eslint .",
+    "db:roles": "node scripts/db-roles.mjs",
+    "db:migrate": "node scripts/with-migrate-url.mjs prisma migrate deploy",
+    "db:migrate:dev": "node scripts/with-migrate-url.mjs prisma migrate dev",
+    "db:reset": "node scripts/with-migrate-url.mjs prisma migrate reset --force --skip-seed",
+    "db:generate": "prisma generate",
+    "seed": "npm run build:shared && node scripts/with-migrate-url.mjs tsx prisma/seed.ts",
+    "setup": "npm run db:roles && npm run db:generate && npm run db:migrate && npm run seed",
+    "test": "npm run build:shared && vitest run",
+    "test:isolation": "npm run build:shared && vitest run --project isolation",
+    "test:unit": "npm run build:shared && vitest run --project unit",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.20.3",
+    "dotenv": "^16.6.1",
+    "eslint": "^9.39.5",
+    "globals": "^17.9.0",
+    "pg": "^8.22.0",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}

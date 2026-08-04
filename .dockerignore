@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+.git
+.github
+.env
+.env.local
+*.log
+infra/data
+playwright-report
+test-results
+*.tsbuildinfo

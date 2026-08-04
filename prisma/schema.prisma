@@ -1,0 +1,813 @@
+// Modelo de domínio da plataforma de formulários.
+//
+// Regras que valem para o arquivo inteiro:
+//  - Toda tabela de negócio tem `organization_id UUID NOT NULL` com FK para
+//    `organizations`. Sem exceção. É essa coluna que o RLS usa.
+//  - IDs são UUID v4 gerados pelo banco (`gen_random_uuid()`). Nunca sequenciais:
+//    ID sequencial é um convite à enumeração.
+//  - Timestamps em UTC (`timestamptz`).
+//  - As políticas de RLS NÃO ficam aqui — o Prisma não as modela. Elas vivem em
+//    prisma/migrations/*_rls_policies/migration.sql e são versionadas junto.
+//
+// Tabelas deliberadamente SEM organization_id, porque são globais por natureza:
+//   users, refresh_tokens, email_verification_tokens, plans, payment_events.
+//   O acesso a elas é sempre por chave do próprio usuário/evento, nunca por
+//   varredura. Ver docs/adr/0001-multi-tenant-rls.md.
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Banco descartável usado só por `prisma migrate dev` para detectar drift.
+  // Ele existe para que `app_migrator` NÃO precise de CREATEDB: o banco é
+  // criado uma vez pelo bootstrap de papéis e reaproveitado.
+  // `prisma migrate deploy` (produção) não usa shadow database.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum Role {
+  owner
+  admin
+  editor
+  viewer
+
+  @@map("role")
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  pending_payment
+  overdue
+  suspended
+  canceled
+
+  @@map("subscription_status")
+}
+
+enum BillingType {
+  credit_card
+  pix
+  boleto
+  invoice
+
+  @@map("billing_type")
+}
+
+enum BillingCycle {
+  monthly
+  semiannual
+  annual
+
+  @@map("billing_cycle")
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  overdue
+  canceled
+  refunded
+
+  @@map("invoice_status")
+}
+
+enum DocumentType {
+  cnpj
+  cpf
+
+  @@map("document_type")
+}
+
+enum FormStatus {
+  draft
+  published
+  archived
+
+  @@map("form_status")
+}
+
+enum FormPermissionLevel {
+  edit
+  view
+  none
+
+  @@map("form_permission_level")
+}
+
+enum ResponseStatus {
+  new
+  reviewed
+  archived
+
+  @@map("response_status")
+}
+
+enum ScanStatus {
+  pending
+  clean
+  infected
+
+  @@map("scan_status")
+}
+
+enum AssignmentStatus {
+  open
+  in_progress
+  done
+
+  @@map("assignment_status")
+}
+
+enum CustomDomainType {
+  subdomain
+  apex
+
+  @@map("custom_domain_type")
+}
+
+enum CustomDomainStatus {
+  pending_verification
+  verifying
+  active
+  failed
+  dangling
+  disabled
+
+  @@map("custom_domain_status")
+}
+
+// =============================================================================
+// ORGANIZAÇÃO, USUÁRIOS E ACESSO
+// =============================================================================
+
+model Organization {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(160)
+  slug         String   @unique @db.VarChar(80)
+  logoUrl      String?  @map("logo_url")
+  primaryColor String?  @map("primary_color") @db.VarChar(9)
+  faviconUrl   String?  @map("favicon_url")
+
+  planCode           String             @default("free") @map("plan_code") @db.VarChar(40)
+  subscriptionStatus SubscriptionStatus @default(trialing) @map("subscription_status")
+  trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(6)
+  dataRegion         String             @default("br") @map("data_region") @db.VarChar(10)
+
+  // Consentimento explícito para análise com IA. Padrão: desligado (seção 5.3).
+  aiConsentAt DateTime? @map("ai_consent_at") @db.Timestamptz(6)
+  aiConsentBy String?   @map("ai_consent_by") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  plan Plan @relation(fields: [planCode], references: [code], onUpdate: Cascade)
+
+  memberships       Membership[]
+  invitations       Invitation[]
+  subscriptions     Subscription[]
+  billingProfile    BillingProfile?
+  invoices          Invoice[]
+  dunningLogs       DunningLog[]
+  addonPurchases    AddonPurchase[]
+  usageCounters     UsageCounter[]
+  forms             Form[]
+  formVersions      FormVersion[]
+  formPermissions   FormPermission[]
+  responses         Response[]
+  files             File[]
+  comments          Comment[]
+  assignments       Assignment[]
+  aiAnalyses        AiAnalysis[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
+  webhookDeliveries WebhookDelivery[]
+  customDomains     CustomDomain[]
+  auditLogs         AuditLog[]
+
+  @@index([deletedAt])
+  @@map("organizations")
+}
+
+/// Usuário é global: a mesma pessoa pode pertencer a várias empresas.
+/// O vínculo com a empresa é a `membership`, nunca um campo aqui.
+model User {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String  @unique @db.VarChar(254)
+  passwordHash String  @map("password_hash")
+  name         String  @db.VarChar(160)
+  avatarUrl    String? @map("avatar_url")
+
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  mfaSecret       String?   @map("mfa_secret")
+  mfaEnabledAt    DateTime? @map("mfa_enabled_at") @db.Timestamptz(6)
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships            Membership[]
+  refreshTokens          RefreshToken[]
+  emailVerificationToken EmailVerificationToken[]
+  invitationsSent        Invitation[]           @relation("InvitationInvitedBy")
+  formsCreated           Form[]                 @relation("FormCreatedBy")
+  formVersionsPublished  FormVersion[]          @relation("FormVersionPublishedBy")
+  formPermissions        FormPermission[]
+  comments               Comment[]
+  assignments            Assignment[]           @relation("AssignmentAssignee")
+  auditLogs              AuditLog[]
+
+  @@map("users")
+}
+
+model Membership {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  role           Role
+
+  invitedBy  String?   @map("invited_by") @db.Uuid
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+model Invitation {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  email          String   @db.VarChar(254)
+  role           Role
+  /// Só o hash. O token em claro existe uma única vez, no e-mail enviado.
+  tokenHash      String   @unique @map("token_hash")
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz(6)
+
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  invitedBy  String?   @map("invited_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inviter      User?        @relation("InvitationInvitedBy", fields: [invitedBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, email])
+  @@map("invitations")
+}
+
+/// Refresh token rotativo com detecção de reuso.
+/// `familyId` agrupa a cadeia de rotações de uma sessão: se um token já
+/// substituído for reapresentado, a família inteira é revogada.
+model RefreshToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  familyId  String   @map("family_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  replacedBy String?   @map("replaced_by") @db.Uuid
+
+  /// IP e user-agent nunca em claro (seção 9).
+  userAgentHash String?  @map("user_agent_hash")
+  ipHash        String?  @map("ip_hash")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// A organização ativa quando a sessão foi criada. Guardada para o refresh
+  /// reemitir o access token no mesmo tenant sem consultar nada vindo do cliente.
+  organizationId String @map("organization_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+// =============================================================================
+// PLANOS E COBRANÇA
+// =============================================================================
+
+/// Tabela global, populada a partir de packages/shared/src/plans.ts pelo seed.
+/// A aplicação lê os limites do `shared`; esta tabela existe para integridade
+/// referencial e para relatórios do admin da plataforma.
+model Plan {
+  code                String   @id @db.VarChar(40)
+  name                String   @db.VarChar(80)
+  tagline             String   @db.VarChar(200)
+  priceMonthlyCents   Int?     @map("price_monthly_cents")
+  priceYearlyCents    Int?     @map("price_yearly_cents")
+  limitsJson          Json     @map("limits_json")
+  featuresJson        Json     @map("features_json")
+  allowedBillingTypes BillingType[] @map("allowed_billing_types")
+  boletoCycles        BillingCycle[] @map("boleto_cycles")
+  isPublic            Boolean  @default(true) @map("is_public")
+  isHighlighted       Boolean  @default(false) @map("is_highlighted")
+  isContactSales      Boolean  @default(false) @map("is_contact_sales")
+  requiresOwnerMfa    Boolean  @default(false) @map("requires_owner_mfa")
+  trialDays           Int      @default(0) @map("trial_days")
+  sortOrder           Int      @default(0) @map("sort_order")
+
+  organizations Organization[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  planCode       String @map("plan_code") @db.VarChar(40)
+
+  providerSubscriptionId String?      @map("provider_subscription_id")
+  billingType            BillingType  @map("billing_type")
+  cycle                  BillingCycle
+  status                 SubscriptionStatus
+
+  currentPeriodStart DateTime  @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd   DateTime  @map("current_period_end") @db.Timestamptz(6)
+  /// Fim da tolerância. Boleto compensa em 1 a 3 dias úteis — suspender no
+  /// vencimento derruba cliente adimplente (seção 7.3).
+  graceUntil         DateTime? @map("grace_until") @db.Timestamptz(6)
+
+  amountCents      Int       @map("amount_cents")
+  nextDueDate      DateTime? @map("next_due_date") @db.Date
+  priceLockedUntil DateTime? @map("price_locked_until") @db.Timestamptz(6)
+
+  canceledAt   DateTime? @map("canceled_at") @db.Timestamptz(6)
+  cancelReason String?   @map("cancel_reason")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planCode], references: [code])
+  invoices     Invoice[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model BillingProfile {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @unique @map("organization_id") @db.Uuid
+  documentType   DocumentType @map("document_type")
+  /// Somente dígitos, validado por algoritmo antes de gravar.
+  document       String       @db.VarChar(14)
+  legalName      String       @map("legal_name") @db.VarChar(200)
+  tradeName      String?      @map("trade_name") @db.VarChar(200)
+  municipalRegistration String? @map("municipal_registration") @db.VarChar(40)
+
+  emailBilling String  @map("email_billing") @db.VarChar(254)
+  phone        String? @db.VarChar(20)
+
+  addressZip        String @map("address_zip") @db.VarChar(8)
+  addressStreet     String @map("address_street") @db.VarChar(200)
+  addressNumber     String @map("address_number") @db.VarChar(20)
+  addressComplement String? @map("address_complement") @db.VarChar(100)
+  addressDistrict   String @map("address_district") @db.VarChar(100)
+  addressCity       String @map("address_city") @db.VarChar(100)
+  addressState      String @map("address_state") @db.Char(2)
+
+  providerCustomerId String?  @map("provider_customer_id")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("billing_profiles")
+}
+
+model Invoice {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  subscriptionId String? @map("subscription_id") @db.Uuid
+
+  providerInvoiceId String?       @map("provider_invoice_id")
+  amountCents       Int           @map("amount_cents")
+  status            InvoiceStatus @default(pending)
+  billingType       BillingType   @map("billing_type")
+  dueDate           DateTime      @map("due_date") @db.Date
+  paidAt            DateTime?     @map("paid_at") @db.Timestamptz(6)
+
+  boletoUrl     String? @map("boleto_url")
+  boletoBarcode String? @map("boleto_barcode")
+  pixQrcode     String? @map("pix_qrcode")
+  pixCopypaste  String? @map("pix_copypaste")
+
+  nfseUrl    String?  @map("nfse_url")
+  nfseNumber String?  @map("nfse_number")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  dunningLogs  DunningLog[]
+
+  @@index([organizationId, status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+/// Eventos de webhook do gateway. Global: chega antes de sabermos o tenant.
+/// `providerEventId` unique é o que garante idempotência (seção 7.5).
+model PaymentEvent {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String    @db.VarChar(40)
+  providerEventId String    @unique @map("provider_event_id")
+  eventType       String    @map("event_type") @db.VarChar(80)
+  payloadJson     Json      @map("payload_json")
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  error           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([processedAt])
+  @@map("payment_events")
+}
+
+model DunningLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  invoiceId      String   @map("invoice_id") @db.Uuid
+  step           String   @db.VarChar(40)
+  channel        String   @db.VarChar(20)
+  sentAt         DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("dunning_log")
+}
+
+model AddonPurchase {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  addonCode      String   @map("addon_code") @db.VarChar(40)
+  unit           String   @db.VarChar(40)
+  amount         Int
+  priceCents     Int      @map("price_cents")
+  periodStart    DateTime @map("period_start") @db.Timestamptz(6)
+  periodEnd      DateTime @map("period_end") @db.Timestamptz(6)
+  isRecurring    Boolean  @default(false) @map("is_recurring")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, periodStart])
+  @@map("addon_purchases")
+}
+
+/// Contadores do ciclo vigente. Resetam em `current_period_start` da assinatura,
+/// não no dia 1 do mês (seção 6.2).
+model UsageCounter {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  periodStart    DateTime @map("period_start") @db.Timestamptz(6)
+  periodEnd      DateTime @map("period_end") @db.Timestamptz(6)
+
+  responsesCount  Int @default(0) @map("responses_count")
+  aiAnalysesCount Int @default(0) @map("ai_analyses_count")
+  storageUsedMb   Int @default(0) @map("storage_used_mb")
+  formsCount      Int @default(0) @map("forms_count")
+
+  /// Janela de cortesia de 48h após estourar a cota de respostas.
+  bufferStartedAt DateTime? @map("buffer_started_at") @db.Timestamptz(6)
+  bufferEndsAt    DateTime? @map("buffer_ends_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, periodStart])
+  @@map("usage_counters")
+}
+
+// =============================================================================
+// FORMULÁRIOS
+// =============================================================================
+
+model Form {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  createdBy      String? @map("created_by") @db.Uuid
+
+  title       String  @db.VarChar(200)
+  description String?
+  /// Unique global: é o que aparece em /f/<slug>.
+  slugPublic  String  @unique @map("slug_public") @db.VarChar(80)
+
+  schemaJson   Json @map("schema_json")
+  themeJson    Json @default("{}") @map("theme_json")
+  settingsJson Json @default("{}") @map("settings_json")
+
+  status  FormStatus @default(draft)
+  version Int        @default(1)
+
+  requiresLogin Boolean   @default(false) @map("requires_login")
+  /// Senha do formulário público, quando houver. Hash, nunca em claro.
+  passwordHash  String?   @map("password_hash")
+  closesAt      DateTime? @map("closes_at") @db.Timestamptz(6)
+  maxResponses  Int?      @map("max_responses")
+  responseRetentionDays Int? @map("response_retention_days")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation("FormCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  versions    FormVersion[]
+  permissions FormPermission[]
+  responses   Response[]
+  webhooks    Webhook[]
+  aiAnalyses  AiAnalysis[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, deletedAt])
+  @@map("forms")
+}
+
+model FormVersion {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  formId         String @map("form_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  version        Int
+  schemaJson     Json   @map("schema_json")
+  publishedBy    String? @map("published_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  form         Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  publisher    User?        @relation("FormVersionPublishedBy", fields: [publishedBy], references: [id], onDelete: SetNull)
+
+  @@unique([formId, version])
+  @@index([organizationId])
+  @@map("form_versions")
+}
+
+/// Sobrepõe o papel padrão para um formulário específico (seção 4).
+model FormPermission {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  formId         String              @map("form_id") @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  permission     FormPermissionLevel
+
+  form         Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([formId, userId])
+  @@index([organizationId])
+  @@map("form_permissions")
+}
+
+// =============================================================================
+// RESPOSTAS
+// =============================================================================
+
+/// O conteúdo da resposta é cifrado em repouso com envelope encryption:
+/// `data_encrypted` = AES-256-GCM com uma chave de dados por resposta;
+/// `data_key_encrypted` = essa chave cifrada pela chave mestra da organização.
+/// Ver docs/adr/0004-criptografia-respostas.md.
+model Response {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  formId         String @map("form_id") @db.Uuid
+  formVersion    Int    @map("form_version")
+
+  dataEncrypted    Bytes @map("data_encrypted")
+  dataKeyEncrypted Bytes @map("data_key_encrypted")
+
+  submittedBy   String? @map("submitted_by") @db.Uuid
+  ipHash        String? @map("ip_hash")
+  userAgentHash String? @map("user_agent_hash")
+
+  status    ResponseStatus @default(new)
+  isFlagged Boolean        @default(false) @map("is_flagged")
+  /// Recebida durante a cortesia de 48h após estourar a cota. Nunca apagada.
+  isBuffered Boolean       @default(false) @map("is_buffered")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  form         Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  files       File[]
+  comments    Comment[]
+  assignments Assignment[]
+
+  @@index([organizationId, formId, createdAt])
+  @@index([organizationId, status])
+  @@map("responses")
+}
+
+model File {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  responseId     String? @map("response_id") @db.Uuid
+
+  /// Sempre prefixado por organization_id. Bucket privado, URL pré-assinada.
+  s3Key     String     @map("s3_key")
+  filename  String     @db.VarChar(255)
+  mime      String     @db.VarChar(150)
+  sizeBytes Int        @map("size_bytes")
+  scanStatus ScanStatus @default(pending) @map("scan_status")
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  response     Response?    @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("files")
+}
+
+model Comment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  responseId     String   @map("response_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  body           String
+  mentionsJson   Json     @default("[]") @map("mentions_json")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  response     Response     @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, responseId])
+  @@map("comments")
+}
+
+model Assignment {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  responseId     String           @map("response_id") @db.Uuid
+  assigneeId     String           @map("assignee_id") @db.Uuid
+  status         AssignmentStatus @default(open)
+  dueAt          DateTime?        @map("due_at") @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  response     Response     @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  assignee     User         @relation("AssignmentAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, assigneeId])
+  @@map("assignments")
+}
+
+model AiAnalysis {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  formId         String   @map("form_id") @db.Uuid
+  type           String   @db.VarChar(40)
+  /// Chave de cache: mesma entrada não gasta token duas vezes.
+  inputHash      String   @map("input_hash")
+  resultJson     Json     @map("result_json")
+  model          String   @db.VarChar(80)
+  tokensUsed     Int      @default(0) @map("tokens_used")
+  costCents      Int      @default(0) @map("cost_cents")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  form         Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, formId, type, inputHash])
+  @@index([organizationId, createdAt])
+  @@map("ai_analyses")
+}
+
+// =============================================================================
+// INTEGRAÇÕES
+// =============================================================================
+
+model ApiKey {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  name           String    @db.VarChar(80)
+  /// Só o hash. O segredo é mostrado uma única vez, na criação.
+  keyHash        String    @unique @map("key_hash")
+  /// Primeiros caracteres, para o usuário identificar a chave na lista.
+  prefix         String    @db.VarChar(16)
+  scopes         String[]  @default([])
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz(6)
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  formId         String?  @map("form_id") @db.Uuid
+  url            String
+  /// Segredo do HMAC da assinatura de saída.
+  secret         String
+  events         String[] @default([])
+  isActive       Boolean  @default(true) @map("is_active")
+  lastStatus     Int?     @map("last_status")
+  failureCount   Int      @default(0) @map("failure_count")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  form         Form?             @relation(fields: [formId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  webhookId      String    @map("webhook_id") @db.Uuid
+  event          String    @db.VarChar(80)
+  payloadHash    String    @map("payload_hash")
+  statusCode     Int?      @map("status_code")
+  attempt        Int       @default(1)
+  nextRetryAt    DateTime? @map("next_retry_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  webhook      Webhook      @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, webhookId])
+  @@map("webhook_deliveries")
+}
+
+/// Domínio de cliente. Serve SOMENTE renderização pública de formulário
+/// (seção 8.1). Unique global: um domínio pertence a uma organização só.
+model CustomDomain {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  domain         String             @unique @db.VarChar(253)
+  type           CustomDomainType
+  verificationToken String          @map("verification_token")
+  verificationMethod String         @default("dns_txt") @map("verification_method") @db.VarChar(20)
+  status         CustomDomainStatus @default(pending_verification)
+
+  dnsLastCheckedAt DateTime? @map("dns_last_checked_at") @db.Timestamptz(6)
+  dnsError         String?   @map("dns_error")
+  certIssuedAt     DateTime? @map("cert_issued_at") @db.Timestamptz(6)
+  certExpiresAt    DateTime? @map("cert_expires_at") @db.Timestamptz(6)
+  isPrimary        Boolean   @default(false) @map("is_primary")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("custom_domains")
+}
+
+/// Append-only. O papel de runtime tem apenas SELECT e INSERT aqui — UPDATE e
+/// DELETE são revogados na migration de RLS. Um log que pode ser reescrito
+/// não é um log de auditoria.
+model AuditLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  action         String   @db.VarChar(80)
+  resourceType   String   @map("resource_type") @db.VarChar(40)
+  resourceId     String?  @map("resource_id") @db.Uuid
+  metadataJson   Json     @default("{}") @map("metadata_json")
+  ipHash         String?  @map("ip_hash")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, resourceType, resourceId])
+  @@map("audit_logs")
+}

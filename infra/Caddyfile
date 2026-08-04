@@ -1,0 +1,70 @@
+# Caddy — TLS para domínios de clientes (seção 8.3 do documento de produto).
+#
+# O ponto crítico deste arquivo é o `ask`. Sem ele, qualquer pessoa que apontar
+# um domínio para o nosso IP força a emissão de um certificado no nosso nome —
+# o que esgota o rate limit da Let's Encrypt e nos torna cúmplices de phishing.
+#
+# Com `ask`, o Caddy pergunta à API antes de emitir. A API responde 200 SOMENTE
+# quando o domínio existe em `custom_domains`, está verificado e a organização
+# dona está ativa. Qualquer outra coisa: 404, e nenhum certificado é emitido.
+#
+# O endpoint `/internal/domains/check` entra na Fase 4. Até lá, o Caddy sobe e
+# serve apenas o proxy local — nenhum certificado é emitido em desenvolvimento.
+
+{
+	# Em produção, troque por um e-mail real: é para onde a Let's Encrypt avisa
+	# sobre renovações que falharam.
+	email admin@localhost
+
+	on_demand_tls {
+		ask http://host.docker.internal:3333/internal/domains/check
+		# Teto de emissões por intervalo. Segunda linha de defesa: mesmo que o
+		# `ask` seja mal implementado um dia, o estrago tem limite.
+		interval 2m
+		burst 5
+	}
+
+	# Em desenvolvimento, o CA interno do Caddy evita bater na Let's Encrypt.
+	local_certs
+}
+
+# -----------------------------------------------------------------------------
+# Domínio da aplicação — painel, login e API autenticada. SOMENTE aqui.
+# -----------------------------------------------------------------------------
+:80, :443 {
+	@api path /v1/* /health /internal/*
+	handle @api {
+		reverse_proxy host.docker.internal:3333
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:5173
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Domínios de clientes.
+#
+# `tls { on_demand }` só emite certificado depois do OK do endpoint `ask`.
+#
+# Estes hosts servem APENAS a renderização pública de formulário e a submissão.
+# Nenhuma rota de painel, nenhum cookie de sessão. O bloqueio de verdade está
+# na API (`requireAppHost`), que responde 404 a rota autenticada vinda de host
+# que não seja o da aplicação — este arquivo é conveniência, não a fronteira.
+# -----------------------------------------------------------------------------
+# https:// {
+# 	tls {
+# 		on_demand
+# 	}
+#
+# 	# Só o renderizador público e o endpoint de submissão.
+# 	@publico path /f/* /api/public/*
+# 	handle @publico {
+# 		reverse_proxy host.docker.internal:3333
+# 	}
+#
+# 	# Qualquer outro caminho num domínio de cliente não existe.
+# 	handle {
+# 		respond "Não encontrado" 404
+# 	}
+# }

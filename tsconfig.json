@@ -1,0 +1,7 @@
+{
+  // Projeto-solução: não compila nada por si só, apenas amarra os pacotes.
+  // `tsc -b` respeita a ordem das referências, então `shared` é sempre
+  // construído antes de quem depende dele.
+  "files": [],
+  "references": [{ "path": "./packages/shared" }, { "path": "./apps/api" }]
+}

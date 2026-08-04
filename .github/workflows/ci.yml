@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: lint, tipos e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: test
+      POSTGRES_SUPERUSER_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgresql://app_runtime:runtime_ci_pwd@localhost:5432/formularios?schema=public
+      MIGRATE_DATABASE_URL: postgresql://app_migrator:migrator_ci_pwd@localhost:5432/formularios?schema=public
+      SHADOW_DATABASE_URL: postgresql://app_migrator:migrator_ci_pwd@localhost:5432/formularios_shadow?schema=public
+      # Segredos de CI. Não são segredo: o banco é descartável e some ao fim do job.
+      JWT_ACCESS_SECRET: ci-access-secret-com-mais-de-32-caracteres-aqui
+      JWT_REFRESH_SECRET: ci-refresh-secret-com-mais-de-32-caracteres-aqui
+      IP_HASH_SALT: ci-salt-de-teste-0000000000
+      ENCRYPTION_MASTER_KEY: Y2hhdmUtbWVzdHJhLWRlLWRlc2Vudm9sdmltZW50by0wMDA=
+      APP_DOMAIN: app.formularios.local
+      CNAME_DOMAIN: custom.formularios.local
+      APP_URL: http://localhost:5173
+      API_URL: http://localhost:3333
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # Falha o build em vulnerabilidade alta ou crítica. Moderadas viram
+      # ruído se bloquearem, mas ficam visíveis no log.
+      - name: Auditoria de dependências
+        run: npm audit --audit-level=high
+
+      - name: Gerar cliente Prisma
+        run: npm run db:generate
+
+      - name: Compilar pacote compartilhado
+        run: npm run build:shared
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Checagem de tipos
+        run: npm run typecheck
+
+      - name: Preparar banco
+        run: |
+          npm run db:roles
+          npm run db:migrate
+          npm run seed
+
+      # A suíte de isolamento roda em passo próprio, e não junto das demais,
+      # para que o log de uma falha aponte direto para ela. É o teste que não
+      # pode ficar vermelho: qualquer falha aqui é vazamento entre empresas.
+      - name: Testes de isolamento (bloqueantes)
+        run: npx vitest run --project isolation
+
+      - name: Testes unitários
+        run: npx vitest run --project unit
+
+      - name: Testes de integração
+        run: npx vitest run --project integration

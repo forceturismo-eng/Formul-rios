@@ -1,0 +1,9 @@
+{
+  "name": "@forms/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'O app React entra na Fase 2. A API já responde em http://localhost:3333.' && exit 0"
+  }
+}

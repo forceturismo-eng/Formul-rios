@@ -1,0 +1,18 @@
+{
+  // Os testes vivem fora dos projetos compilados: eles importam o código-fonte
+  // da API diretamente (`apps/api/src/...`), o que é proposital — testar o
+  // `dist` esconderia erro de tipo em código que só o teste exercita.
+  //
+  // Este arquivo existe só para o `npm run typecheck` cobrir a suíte também.
+  // Nada aqui é emitido.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vitest/globals"],
+    "allowImportingTsExtensions": true,
+    // Os testes de propósito verificam formatos de linha vindos do Postgres
+    // com asserções não-nulas; ligar isto atrapalharia sem ganho real.
+    "noUnusedLocals": false
+  },
+  "include": ["tests/**/*.ts", "prisma/seed.ts", "vitest.config.ts"]
+}

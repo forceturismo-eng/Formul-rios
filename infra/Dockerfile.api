@@ -1,0 +1,57 @@
+# API — build multi-estágio.
+#
+# O estágio final não carrega toolchain de build nem código-fonte: o que vai
+# para produção é o menor conjunto capaz de servir requests.
+
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/api/package.json apps/api/
+COPY prisma/schema.prisma prisma/
+
+RUN npm ci --workspaces --include-workspace-root
+
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS build
+WORKDIR /app
+
+COPY --from=deps /app/node_modules node_modules
+COPY --from=deps /app/packages/shared/node_modules packages/shared/node_modules
+COPY . .
+
+RUN npx prisma generate \
+ && npm run build -w @forms/shared \
+ && npm run build -w @forms/api
+
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Não roda como root. Um comprometimento da aplicação não deve virar
+# comprometimento do container.
+RUN groupadd --system --gid 1001 app \
+ && useradd --system --uid 1001 --gid app app
+
+COPY --from=build --chown=app:app /app/node_modules node_modules
+COPY --from=build --chown=app:app /app/packages/shared/dist packages/shared/dist
+COPY --from=build --chown=app:app /app/packages/shared/package.json packages/shared/package.json
+COPY --from=build --chown=app:app /app/apps/api/dist apps/api/dist
+COPY --from=build --chown=app:app /app/apps/api/package.json apps/api/package.json
+COPY --from=build --chown=app:app /app/prisma prisma
+COPY --from=build --chown=app:app /app/package.json package.json
+
+USER app
+EXPOSE 3333
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# Migrations NÃO rodam aqui: elas usam o papel de migration e são um passo
+# separado do deploy. Um container de aplicação que roda DDL na subida é um
+# container de aplicação com poder de DROP TABLE.
+CMD ["node", "apps/api/dist/server.js"]
