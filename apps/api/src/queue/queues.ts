@@ -22,6 +22,7 @@ export const QUEUE_NAMES = {
   webhook: 'webhooks',
   ai: 'analises-ia',
   retention: 'retencao',
+  billing: 'cobranca',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

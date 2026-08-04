@@ -108,6 +108,35 @@ export async function resolvePublicFormOrg(
 }
 
 /**
+ * Organização de uma assinatura, a partir do id dela no gateway.
+ *
+ * Usada só no processamento de webhook de pagamento. O que autoriza a consulta
+ * não é conhecer o id, e sim o token do provedor — verificado em tempo
+ * constante antes desta chamada.
+ */
+export async function resolveSubscriptionOrg(
+  tx: Prisma.TransactionClient,
+  providerSubscriptionId: string,
+): Promise<{ subscriptionId: string; organizationId: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ subscription_id: string; organization_id: string }>>`
+    SELECT * FROM app_subscription_org(${providerSubscriptionId})
+  `;
+  const row = rows[0];
+  return row ? { subscriptionId: row.subscription_id, organizationId: row.organization_id } : null;
+}
+
+/** Idem, quando o evento traz só o cliente do gateway e não a assinatura. */
+export async function resolveBillingCustomerOrg(
+  tx: Prisma.TransactionClient,
+  providerCustomerId: string,
+): Promise<string | null> {
+  const rows = await tx.$queryRaw<Array<{ organization_id: string }>>`
+    SELECT * FROM app_billing_customer_org(${providerCustomerId})
+  `;
+  return rows[0]?.organization_id ?? null;
+}
+
+/**
  * Organização de um refresh token, a partir do hash.
  * Devolve o token mesmo revogado ou expirado — a detecção de reuso precisa
  * enxergar tokens já queimados para saber que houve reuso.

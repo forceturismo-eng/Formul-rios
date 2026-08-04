@@ -83,11 +83,21 @@ describe('configuração do banco', () => {
     //   invitations                -> app_invitation_org
     //   refresh_tokens             -> app_refresh_token_org
     //   forms                      -> app_public_form_org (renderizador público)
+    //   subscriptions              -> app_subscription_org (webhook do gateway)
+    //   billing_profiles           -> app_billing_customer_org (idem)
     //
     // Esta lista é um portão de propósito: crescer a superfície do único papel
     // com BYPASSRLS precisa ser uma decisão consciente, com este teste
     // falhando primeiro e obrigando a justificativa.
-    expect(tabelas).toEqual(['forms', 'invitations', 'memberships', 'organizations', 'refresh_tokens']);
+    expect(tabelas).toEqual([
+      'billing_profiles',
+      'forms',
+      'invitations',
+      'memberships',
+      'organizations',
+      'refresh_tokens',
+      'subscriptions',
+    ]);
 
     // E o que NÃO pode estar aqui — o conteúdo que os clientes confiam a nós.
     for (const proibida of ['responses', 'files', 'comments', 'invoices', 'audit_logs', 'api_keys']) {

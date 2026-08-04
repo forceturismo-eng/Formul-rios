@@ -138,7 +138,8 @@ apps/
       http/         erros, contexto de request
       crypto/       envelope encryption das respostas, redação de PII
       mail/         mailer (memória na Fase 1)
-      queue/        filas BullMQ e worker de exportação
+      payments/     PaymentProvider, AsaasProvider e provedor falso
+      queue/        filas BullMQ, workers de exportação e cobrança
       routes/       auth, organizações, formulários, respostas, arquivos, público
       services/     regras de autenticação, formulários, submissão, recebimentos
       storage/      StorageProvider e validação de upload
@@ -167,7 +168,7 @@ docs/adr/       decisões arquiteturais
 `app_bootstrap` é o único papel com `BYPASSRLS` e existe por um motivo
 específico: `SECURITY DEFINER` **não** contorna RLS, e com
 `FORCE ROW LEVEL SECURITY` nem o dono da tabela escapa. Ele não faz login,
-recebe `SELECT` em apenas cinco tabelas, e `app_runtime` não é membro dele.
+recebe `SELECT` em apenas sete tabelas, e `app_runtime` não é membro dele.
 O raciocínio completo está em
 [`docs/adr/0002`](docs/adr/0002-funcoes-de-bootstrap.md).
 
@@ -310,9 +311,11 @@ catálogo público `plans`.
       renderizador público, submissão, uploads, painel de recebimentos,
       exportações em fila. O builder drag-and-drop e o app React entram junto
       com o frontend, na Fase 3.
-- [ ] **Fase 3 — Comercialização.** Planos, quotas com buffer de 48h,
-      `AsaasProvider`, boleto/Pix/cartão, NFS-e, dunning, reconciliação diária,
-      página de preços e checkout.
+- [~] **Fase 3 — Comercialização (backend).** Quotas com buffer de 48h,
+      `PaymentProvider` + `AsaasProvider`, boleto/Pix/cartão, máquina de
+      estados com tolerância, webhooks idempotentes e reconciliação diária.
+      Falta a NFS-e e todo o frontend (página de preços, checkout, telas de
+      boleto e Pix, histórico de faturas, banners).
 - [ ] **Fase 4 — Domínios e diferenciais.** Domínios próprios com Caddy + ACME,
       white-label, colaboração, análises com IA, webhooks, API pública.
 - [ ] **Fase 5 — Fechamento.** Admin da plataforma com MFA e impersonação

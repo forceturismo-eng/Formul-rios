@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
 import { authRoutes } from './routes/auth.js';
+import { billingRoutes, paymentWebhookRoutes } from './routes/billing.js';
 import { fileRoutes } from './routes/files.js';
 import { formRoutes } from './routes/forms.js';
 import { organizationRoutes, planRoutes } from './routes/organizations.js';
@@ -117,12 +118,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   // precisa ser curta e estável.
   await app.register(publicFormRoutes);
   await app.register(fileRoutes);
+  // Webhook do gateway: sem autenticação de usuário, com token do provedor.
+  await app.register(paymentWebhookRoutes);
 
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(planRoutes, { prefix: '/v1' });
   await app.register(organizationRoutes, { prefix: '/v1' });
   await app.register(formRoutes, { prefix: '/v1' });
   await app.register(responseRoutes, { prefix: '/v1' });
+  await app.register(billingRoutes, { prefix: '/v1' });
   await app.register(resourceRoutes, { prefix: '/v1' });
 
   return app;
