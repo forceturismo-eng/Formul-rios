@@ -85,12 +85,14 @@ describe('configuração do banco', () => {
     //   forms                      -> app_public_form_org (renderizador público)
     //   subscriptions              -> app_subscription_org (webhook do gateway)
     //   billing_profiles           -> app_billing_customer_org (idem)
+    //   custom_domains             -> app_custom_domain_org (renderizador e Caddy)
     //
     // Esta lista é um portão de propósito: crescer a superfície do único papel
     // com BYPASSRLS precisa ser uma decisão consciente, com este teste
     // falhando primeiro e obrigando a justificativa.
     expect(tabelas).toEqual([
       'billing_profiles',
+      'custom_domains',
       'forms',
       'invitations',
       'memberships',

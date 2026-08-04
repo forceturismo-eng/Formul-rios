@@ -108,6 +108,47 @@ export async function resolvePublicFormOrg(
 }
 
 /**
+ * Organização de um domínio de cliente.
+ *
+ * Usada no renderizador público e no endpoint `ask` do Caddy. Devolve o estado
+ * da organização junto porque a autorização de emissão de certificado depende
+ * dele: domínio de cliente suspenso não ganha certificado novo.
+ */
+export interface CustomDomainLookup {
+  domainId: string;
+  organizationId: string;
+  domainStatus: string;
+  subscriptionStatus: string;
+  organizationDeleted: boolean;
+}
+
+export async function resolveCustomDomainOrg(
+  tx: Prisma.TransactionClient,
+  domain: string,
+): Promise<CustomDomainLookup | null> {
+  const rows = await tx.$queryRaw<
+    Array<{
+      domain_id: string;
+      organization_id: string;
+      domain_status: string;
+      subscription_status: string;
+      organization_deleted: boolean;
+    }>
+  >`SELECT * FROM app_custom_domain_org(${domain})`;
+
+  const row = rows[0];
+  return row
+    ? {
+        domainId: row.domain_id,
+        organizationId: row.organization_id,
+        domainStatus: row.domain_status,
+        subscriptionStatus: row.subscription_status,
+        organizationDeleted: row.organization_deleted,
+      }
+    : null;
+}
+
+/**
  * Organização de uma assinatura, a partir do id dela no gateway.
  *
  * Usada só no processamento de webhook de pagamento. O que autoriza a consulta
