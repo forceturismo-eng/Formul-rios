@@ -1,13 +1,17 @@
 {
   // Os testes vivem fora dos projetos compilados: eles importam o código-fonte
-  // da API diretamente (`apps/api/src/...`), o que é proposital — testar o
-  // `dist` esconderia erro de tipo em código que só o teste exercita.
+  // da API e do web diretamente, o que é proposital — testar o `dist`
+  // esconderia erro de tipo em código que só o teste exercita.
   //
   // Este arquivo existe só para o `npm run typecheck` cobrir a suíte também.
   // Nada aqui é emitido.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    // DOM porque alguns testes cobrem código do frontend (o roteador, por
+    // exemplo, que é código de segurança e merece cobertura).
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "types": ["node", "vitest/globals"],
     "allowImportingTsExtensions": true,
     // Os testes de propósito verificam formatos de linha vindos do Postgres

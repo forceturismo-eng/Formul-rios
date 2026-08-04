@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * A cor primária é uma variável para que o formulário público possa assumir a
+ * marca do cliente sem `!important` e sem CSS global (requisito do white-label,
+ * seção 8.5).
+ */
+:root {
+  --cor-marca: #2563eb;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+}
+
+@layer components {
+  .botao {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .botao-primario {
+    @apply botao text-white;
+    background-color: var(--cor-marca);
+  }
+  .botao-primario:hover:not(:disabled) {
+    filter: brightness(0.92);
+  }
+  .botao-secundario {
+    @apply botao border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .campo {
+    @apply w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none
+           focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+  .rotulo {
+    @apply mb-1.5 block text-sm font-medium text-slate-700;
+  }
+  .erro-campo {
+    @apply mt-1.5 text-sm text-red-600;
+  }
+  .cartao {
+    @apply rounded-xl border border-slate-200 bg-white p-6;
+  }
+}

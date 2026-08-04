@@ -12,9 +12,9 @@
   ],
   "scripts": {
     "build:shared": "npm run build -w @forms/shared",
-    "build": "npm run build:shared && npm run build -w @forms/api",
+    "build": "npm run build:shared && npm run build -w @forms/api && npm run build -w @forms/web",
     "dev": "npm run build:shared && npm run dev -w @forms/api",
-    "typecheck": "npm run build:shared && tsc -b --pretty && tsc -p tsconfig.tests.json",
+    "typecheck": "npm run build:shared && tsc -b --pretty && tsc -p tsconfig.tests.json && tsc -p apps/web/tsconfig.json --noEmit",
     "lint": "eslint .",
     "db:roles": "node scripts/db-roles.mjs",
     "db:migrate": "node scripts/with-migrate-url.mjs prisma migrate deploy",
@@ -26,7 +26,8 @@
     "test": "npm run build:shared && vitest run",
     "test:isolation": "npm run build:shared && vitest run --project isolation",
     "test:unit": "npm run build:shared && vitest run --project unit",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:web": "npm run dev -w @forms/web"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

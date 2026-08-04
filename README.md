@@ -3,11 +3,11 @@
 Gerenciamento de formulários online no modelo Jotform, vendido por assinatura
 para múltiplas empresas, com foco no mercado brasileiro.
 
-> **Estado atual: Fases 1 e 2 concluídas.** Fundação multi-tenant,
-> autenticação, RBAC, formulários com versionamento, renderizador público,
-> uploads, painel de recebimentos e exportações em fila. A comercialização
-> (Fase 3) e os domínios próprios (Fase 4) ainda não existem.
-> Ver [Roteiro](#roteiro).
+> **Estado atual: Fases 1 a 3 concluídas**, exceto NFS-e e dunning por
+> e-mail. Existe backend completo (multi-tenant, formulários, submissão,
+> recebimentos, quotas, cobrança) e frontend em React (preços, autenticação,
+> builder, recebimentos, cobrança, renderizador público). Os domínios próprios
+> (Fase 4) ainda não existem. Ver [Roteiro](#roteiro).
 
 ---
 
@@ -21,8 +21,12 @@ docker compose up -d          # postgres, redis, minio, mailhog, caddy
 npm install
 npm run setup                 # papéis do banco + migrations + seed
 npm run dev                   # API em http://localhost:3333
+npm run dev:web               # app web em http://localhost:5173
 npm run dev -w @forms/worker  # workers das filas, em outro terminal
 ```
+
+O app web faz proxy de `/v1` e `/f` para a API, então o cookie de sessão viaja
+como mesma origem — igual ao que acontece em produção, atrás do Caddy.
 
 `npm run setup` faz três coisas, nesta ordem, e todas são idempotentes:
 
@@ -66,9 +70,9 @@ npm run test:unit       # regras puras, sem banco
 
 | Suíte | O que cobre |
 |---|---|
-| `unit` | RBAC, planos, aritmética de centavos, CPF/CNPJ, runtime do formulário, validação de upload, guarda de SQL cru |
+| `unit` | RBAC, planos, quotas, microcopy, aritmética de centavos, CPF/CNPJ, runtime do formulário, validação de upload, roteador do web, guarda de SQL cru |
 | `isolation` | Fronteira entre empresas: HTTP, banco, tokens, `Host`, criptografia, arquivos e exportações |
-| `integration` | Autenticação, ciclo do formulário, submissão pública, recebimentos e exportação |
+| `integration` | Autenticação, ciclo do formulário, submissão pública, recebimentos, exportação, enforcement de quotas e cobrança |
 
 A suíte de isolamento sobe a **mesma** aplicação que roda em produção, contra o
 **mesmo** Postgres com RLS ligado. Nada é substituído por mock: um teste de
@@ -143,7 +147,12 @@ apps/
       routes/       auth, organizações, formulários, respostas, arquivos, público
       services/     regras de autenticação, formulários, submissão, recebimentos
       storage/      StorageProvider e validação de upload
-  web/          React + Vite (Fase 3)
+  web/          React + Vite
+    src/
+      components/   layout do painel e peças de interface
+      lib/          cliente de API, sessão e roteador próprio
+      pages/        preços, auth, formulários, builder, respostas, cobrança,
+                    renderizador público
   worker/       processo dos workers BullMQ
 packages/
   shared/       planos, RBAC, schemas Zod, runtime do formulário,
@@ -311,11 +320,12 @@ catálogo público `plans`.
       renderizador público, submissão, uploads, painel de recebimentos,
       exportações em fila. O builder drag-and-drop e o app React entram junto
       com o frontend, na Fase 3.
-- [~] **Fase 3 — Comercialização (backend).** Quotas com buffer de 48h,
+- [~] **Fase 3 — Comercialização.** Quotas com buffer de 48h,
       `PaymentProvider` + `AsaasProvider`, boleto/Pix/cartão, máquina de
-      estados com tolerância, webhooks idempotentes e reconciliação diária.
-      Falta a NFS-e e todo o frontend (página de preços, checkout, telas de
-      boleto e Pix, histórico de faturas, banners).
+      estados com tolerância, webhooks idempotentes, reconciliação diária,
+      página de preços, painel de cobrança e telas de Pix e boleto.
+      **Falta:** emissão de NFS-e e o disparo de dunning por e-mail — os dois
+      dependem de credenciais externas.
 - [ ] **Fase 4 — Domínios e diferenciais.** Domínios próprios com Caddy + ACME,
       white-label, colaboração, análises com IA, webhooks, API pública.
 - [ ] **Fase 5 — Fechamento.** Admin da plataforma com MFA e impersonação

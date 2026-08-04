@@ -83,6 +83,11 @@ jobs:
       - name: Checagem de tipos
         run: npm run typecheck
 
+      # O build do frontend é parte da verificação: um erro de import só
+      # aparece no bundle, não no typecheck.
+      - name: Build do frontend
+        run: npm run build -w @forms/web
+
       - name: Preparar banco
         run: |
           npm run db:roles
