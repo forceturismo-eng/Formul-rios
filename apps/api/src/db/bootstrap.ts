@@ -89,6 +89,25 @@ export async function resolveInvitationOrg(
 }
 
 /**
+ * Organização de um formulário público, a partir do slug.
+ *
+ * O slug é público por natureza — está na URL que o cliente divulga. Conhecê-lo
+ * não é credencial, e por isso esta função devolve apenas IDs, e apenas para
+ * formulários efetivamente publicados. Título, schema e configurações são lidos
+ * depois, já sob RLS.
+ */
+export async function resolvePublicFormOrg(
+  tx: Prisma.TransactionClient,
+  slug: string,
+): Promise<{ formId: string; organizationId: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ form_id: string; organization_id: string }>>`
+    SELECT * FROM app_public_form_org(${slug})
+  `;
+  const row = rows[0];
+  return row ? { formId: row.form_id, organizationId: row.organization_id } : null;
+}
+
+/**
  * Organização de um refresh token, a partir do hash.
  * Devolve o token mesmo revogado ou expirado — a detecção de reuso precisa
  * enxergar tokens já queimados para saber que houve reuso.

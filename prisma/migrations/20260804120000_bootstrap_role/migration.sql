@@ -33,6 +33,12 @@ BEGIN
     RAISE EXCEPTION 'Papel app_bootstrap não existe. Rode `npm run db:roles` antes das migrations.';
   END IF;
 
+  -- O Postgres exige que o dono de um objeto tenha CREATE no schema onde ele
+  -- vive. Conceder aqui, e não só no bootstrap de papéis, torna a migration
+  -- autossuficiente — o shadow database do `prisma migrate dev` é recriado do
+  -- zero a cada execução e perderia qualquer grant feito fora daqui.
+  GRANT USAGE, CREATE ON SCHEMA public TO app_bootstrap;
+
   -- Privilégio mínimo: apenas leitura, apenas nas tabelas que as funções tocam.
   GRANT SELECT ON organizations, memberships, invitations, refresh_tokens TO app_bootstrap;
 

@@ -67,7 +67,15 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
 
   IP_HASH_SALT: z.string().min(16, 'IP_HASH_SALT precisa de pelo menos 16 caracteres.'),
-  ENCRYPTION_MASTER_KEY: z.string().min(1),
+  // Conferido aqui, e não no primeiro uso: uma chave do tamanho errado só
+  // apareceria na primeira submissão de formulário — em produção, no pior
+  // momento possível.
+  ENCRYPTION_MASTER_KEY: z
+    .string()
+    .refine(
+      (value) => Buffer.from(value, 'base64').length === 32,
+      'ENCRYPTION_MASTER_KEY precisa ter 32 bytes em base64. Gere com: openssl rand -base64 32',
+    ),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });

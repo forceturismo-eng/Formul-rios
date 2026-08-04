@@ -63,7 +63,7 @@ describe('configuração do banco', () => {
     expect(rows.map((r) => r.member)).not.toContain('app_runtime');
   });
 
-  it('app_bootstrap só enxerga as quatro tabelas de que as funções precisam', async () => {
+  it('app_bootstrap só enxerga as tabelas de que as funções de bootstrap precisam', async () => {
     // `information_schema.table_privileges` só lista o que o papel corrente
     // enxerga — e `app_runtime` não é membro de `app_bootstrap`, justamente o
     // que outro teste aqui exige. Então a leitura vai direto ao catálogo.
@@ -77,8 +77,24 @@ describe('configuração do banco', () => {
     `;
 
     const tabelas = [...new Set(rows.map((r) => r.table_name))].sort();
-    expect(tabelas).toEqual(['invitations', 'memberships', 'organizations', 'refresh_tokens']);
-    // Só leitura. Nem formulários, nem respostas, nem faturas, nem audit_logs.
+
+    // Uma tabela por função de bootstrap, e nada além:
+    //   organizations, memberships -> app_user_memberships (login, refresh)
+    //   invitations                -> app_invitation_org
+    //   refresh_tokens             -> app_refresh_token_org
+    //   forms                      -> app_public_form_org (renderizador público)
+    //
+    // Esta lista é um portão de propósito: crescer a superfície do único papel
+    // com BYPASSRLS precisa ser uma decisão consciente, com este teste
+    // falhando primeiro e obrigando a justificativa.
+    expect(tabelas).toEqual(['forms', 'invitations', 'memberships', 'organizations', 'refresh_tokens']);
+
+    // E o que NÃO pode estar aqui — o conteúdo que os clientes confiam a nós.
+    for (const proibida of ['responses', 'files', 'comments', 'invoices', 'audit_logs', 'api_keys']) {
+      expect(tabelas, `app_bootstrap enxerga ${proibida}`).not.toContain(proibida);
+    }
+
+    // Só leitura, em todas.
     expect([...new Set(rows.map((r) => r.privilege_type))]).toEqual(['SELECT']);
   });
 

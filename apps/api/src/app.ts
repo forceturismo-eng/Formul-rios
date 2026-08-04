@@ -6,7 +6,9 @@ import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
 import { authRoutes } from './routes/auth.js';
+import { formRoutes } from './routes/forms.js';
 import { organizationRoutes, planRoutes } from './routes/organizations.js';
+import { publicFormRoutes } from './routes/public-forms.js';
 import { resourceRoutes } from './routes/resources.js';
 
 /**
@@ -96,9 +98,15 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get('/health', async () => ({ status: 'ok', product: env.branding.productName }));
 
+  // Renderizador público — as únicas rotas servidas também nos domínios de
+  // clientes. Sem prefixo /v1: a URL /f/<slug> é divulgada pelo cliente e
+  // precisa ser curta e estável.
+  await app.register(publicFormRoutes);
+
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(planRoutes, { prefix: '/v1' });
   await app.register(organizationRoutes, { prefix: '/v1' });
+  await app.register(formRoutes, { prefix: '/v1' });
   await app.register(resourceRoutes, { prefix: '/v1' });
 
   return app;

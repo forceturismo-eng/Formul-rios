@@ -524,7 +524,14 @@ model Form {
   settingsJson Json @default("{}") @map("settings_json")
 
   status  FormStatus @default(draft)
+  /// Última versão PUBLICADA. Só muda quando o formulário é publicado.
   version Int        @default(1)
+  /// Contador de concorrência. Incrementa a cada gravação, publicada ou não.
+  /// O cliente devolve o valor que leu; se não bater, a gravação é recusada
+  /// com 409 em vez de sobrescrever o trabalho de outra pessoa.
+  /// `updatedAt` não serve para isso: timestamptz tem microssegundos e o
+  /// `Date` do JavaScript, milissegundos — a comparação erraria.
+  revision Int       @default(0)
 
   requiresLogin Boolean   @default(false) @map("requires_login")
   /// Senha do formulário público, quando houver. Hash, nunca em claro.

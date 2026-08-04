@@ -207,7 +207,13 @@ BEGIN
     REVOKE INSERT, UPDATE, DELETE ON plans FROM app_runtime;
 
     -- O runtime não tem por que enxergar o histórico de migrations.
-    REVOKE ALL ON "_prisma_migrations" FROM app_runtime;
+    --
+    -- Condicional porque no shadow database do `prisma migrate dev` a tabela
+    -- ainda não existe quando esta migration roda. O bootstrap de papéis
+    -- (`npm run db:roles`) reaplica esta revogação de qualquer forma.
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '_prisma_migrations') THEN
+      REVOKE ALL ON "_prisma_migrations" FROM app_runtime;
+    END IF;
   END IF;
 END
 $$;

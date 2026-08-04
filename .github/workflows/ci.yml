@@ -39,7 +39,7 @@ jobs:
       JWT_ACCESS_SECRET: ci-access-secret-com-mais-de-32-caracteres-aqui
       JWT_REFRESH_SECRET: ci-refresh-secret-com-mais-de-32-caracteres-aqui
       IP_HASH_SALT: ci-salt-de-teste-0000000000
-      ENCRYPTION_MASTER_KEY: Y2hhdmUtbWVzdHJhLWRlLWRlc2Vudm9sdmltZW50by0wMDA=
+      ENCRYPTION_MASTER_KEY: q3ZJKXeMTbe+6a0mawsnBivPtbusaK0snfzPhC4uy7w=
       APP_DOMAIN: app.formularios.local
       CNAME_DOMAIN: custom.formularios.local
       APP_URL: http://localhost:5173
