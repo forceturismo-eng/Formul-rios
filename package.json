@@ -27,10 +27,13 @@
     "test:isolation": "npm run build:shared && vitest run --project isolation",
     "test:unit": "npm run build:shared && vitest run --project unit",
     "test:watch": "vitest",
-    "dev:web": "npm run dev -w @forms/web"
+    "dev:web": "npm run dev -w @forms/web",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.3",
     "dotenv": "^16.6.1",

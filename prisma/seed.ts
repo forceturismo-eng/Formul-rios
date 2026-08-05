@@ -18,6 +18,7 @@
 import { randomUUID, createHash, randomBytes } from 'node:crypto';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { hash as argonHash } from '@node-rs/argon2';
+import { encryptResponseData } from '../apps/api/src/crypto/envelope.js';
 import { PLANS } from '@forms/shared';
 
 const prisma = new PrismaClient();
@@ -78,6 +79,8 @@ interface OrgSpec {
   domain: string;
   formTitle: string;
   formSlug: string;
+  /** Conteúdo da resposta de exemplo, em claro. Cifrado antes de ir ao banco. */
+  responseValues: Record<string, unknown>;
 }
 
 const PASSWORD = 'formulario-dev-2026';
@@ -99,6 +102,14 @@ const ORGS: OrgSpec[] = [
     domain: 'formularios.alfa.test',
     formTitle: 'Briefing de campanha',
     formSlug: 'briefing-campanha-alfa',
+    responseValues: {
+      nome: 'Carla Dias',
+      email: 'carla.dias@cliente-alfa.test',
+      documento: '390.533.447-05',
+      cep: '01310-100',
+      mensagem: 'Precisamos de uma campanha para o lançamento de março. O prazo está apertado.',
+      nps: 8,
+    },
   },
   {
     id: '22222222-2222-4222-8222-222222222222',
@@ -113,6 +124,14 @@ const ORGS: OrgSpec[] = [
     domain: 'formularios.beta.test',
     formTitle: 'Ficha de anamnese',
     formSlug: 'ficha-anamnese-beta',
+    responseValues: {
+      nome: 'Bruno Lima',
+      email: 'bruno.lima@paciente-beta.test',
+      documento: '111.444.777-35',
+      cep: '30140-071',
+      mensagem: 'Tenho dores no joelho direito há três semanas. Telefone (31) 98888-7777.',
+      nps: 9,
+    },
   },
 ];
 
@@ -221,6 +240,18 @@ async function seedOrganization(spec: OrgSpec): Promise<void> {
       },
     });
 
+    // Respostas cifradas DE VERDADE, com o mesmo envelope da aplicação.
+    //
+    // Até a Fase 4 isto gravava `randomBytes`, com um comentário dizendo que a
+    // criptografia viria na Fase 2. Ela veio, e o seed não acompanhou — o que
+    // deixou toda resposta semeada indecifrável. Nada quebrava: as suítes
+    // submetiam pelas rotas públicas e liam o que elas mesmas criaram. O
+    // problema só apareceu quando a análise com IA foi ler as respostas do
+    // seed e não conseguiu.
+    //
+    // Conteúdo realista de propósito: nome, e-mail e CPF existem aqui para que
+    // a redação de PII tenha o que redigir, e para que um teste que espera
+    // pseudônimos possa falhar de verdade.
     const existingResponse = await tx.response.findFirst({ where: { organizationId: spec.id, formId: form.id } });
     const response =
       existingResponse ??
@@ -229,10 +260,7 @@ async function seedOrganization(spec: OrgSpec): Promise<void> {
           organizationId: spec.id,
           formId: form.id,
           formVersion: 1,
-          // O conteúdo real é cifrado com envelope encryption na Fase 2. Aqui
-          // vão bytes de exemplo só para a coluna não ficar vazia.
-          dataEncrypted: randomBytes(64),
-          dataKeyEncrypted: randomBytes(48),
+          ...encryptResponseData(spec.id, spec.responseValues),
           status: 'new',
         },
       }));

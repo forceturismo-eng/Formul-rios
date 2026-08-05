@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeApp, getApp, loginAs } from '../helpers/api.js';
 import { ORG_A } from '../helpers/orgs.js';
 import { withTenant } from '../../apps/api/src/db/tenant.js';
+import { limparFormulariosDeTeste, PREFIXO_DE_TESTE } from '../helpers/limpeza.js';
 import { loadUsage } from '../../apps/api/src/services/usage-service.js';
 
 /**
@@ -56,6 +57,9 @@ beforeEach(async () => {
 afterAll(async () => {
   await usarPlano('business');
   await zerarContadores();
+  // Sem isto, cada execução deixa dezenas de formulários para trás e a próxima
+  // esbarra no limite do plano — falhando por acúmulo, não pela mudança.
+  await limparFormulariosDeTeste(ORG_A.id);
   await closeApp();
 });
 
@@ -65,7 +69,7 @@ async function garantirFormularios(alvo: number): Promise<void> {
 
   let atual = (await withTenant(ORG_A.id, (ctx) => loadUsage(ctx))).formsCount;
   while (atual < alvo) {
-    const criado = await api('POST', '/v1/forms', { title: `Preenchimento ${atual} ${Date.now()}` });
+    const criado = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Preenchimento ${atual} ${Date.now()}` });
     if (criado.statusCode !== 201) throw new Error(`falha ao preparar formulários: ${criado.body}`);
     atual += 1;
   }
@@ -78,7 +82,7 @@ describe('limite de formulários', () => {
     await garantirFormularios(3);
     await usarPlano('free'); // 3 formulários
 
-    const resposta = await api('POST', '/v1/forms', { title: 'Mais um formulário' });
+    const resposta = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Mais um formulário` });
 
     expect(resposta.statusCode).toBe(402);
 
@@ -98,7 +102,7 @@ describe('limite de formulários', () => {
   it('arquivar libera a vaga sem apagar nada', async () => {
     await garantirFormularios(3);
 
-    const criado = await api('POST', '/v1/forms', { title: `Descartável ${Date.now()}` });
+    const criado = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Descartável ${Date.now()}` });
     const { id } = criado.json() as { id: string };
 
     const antes = (await withTenant(ORG_A.id, (ctx) => loadUsage(ctx))).formsCount;
@@ -116,7 +120,7 @@ describe('limite de formulários', () => {
 
   it('plano ilimitado nunca bloqueia', async () => {
     await usarPlano('business');
-    expect((await api('POST', '/v1/forms', { title: `Ilimitado ${Date.now()}` })).statusCode).toBe(201);
+    expect((await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Ilimitado ${Date.now()}` })).statusCode).toBe(201);
   });
 });
 
@@ -137,7 +141,7 @@ describe('cota de respostas e a cortesia de 48 horas', () => {
   let formId: string;
 
   async function prepararFormulario(): Promise<void> {
-    const criado = await api('POST', '/v1/forms', { title: `Cota ${Date.now()}` });
+    const criado = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Cota ${Date.now()}` });
     const form = criado.json() as { id: string; slugPublic: string };
     formId = form.id;
     slug = form.slugPublic;

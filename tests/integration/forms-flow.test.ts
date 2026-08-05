@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closeApp, getApp, loginAs } from '../helpers/api.js';
 import { ORG_A } from '../helpers/orgs.js';
 import { withTenant } from '../../apps/api/src/db/tenant.js';
+import { limparFormulariosDeTeste, PREFIXO_DE_TESTE } from '../helpers/limpeza.js';
 import { decryptResponseData } from '../../apps/api/src/crypto/envelope.js';
 
 /**
@@ -61,7 +62,9 @@ async function publico(method: 'GET' | 'POST', url: string, payload?: unknown, h
 }
 
 async function criarFormulario(titulo: string) {
-  const criado = await api('POST', '/v1/forms', { title: titulo });
+  // Prefixo de teste: é por ele que a limpeza no fim da suíte encontra o que
+  // apagar, sem tocar nos formulários do seed.
+  const criado = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}${titulo}` });
   expect(criado.statusCode).toBe(201);
   return criado.json() as { id: string; revision: number; slugPublic: string; status: string };
 }
@@ -70,15 +73,36 @@ beforeAll(async () => {
   token = (await loginAs(ORG_A.owner)).accessToken;
 });
 
-afterAll(closeApp);
+afterAll(async () => {
+  await limparFormulariosDeTeste(ORG_A.id);
+  await closeApp();
+});
 
 describe('criação e edição', () => {
+  it('dois formulários com o mesmo título não colidem no slug', async () => {
+    // O slug público é único globalmente, e o RLS impede conferir colisão
+    // antes — quem resolve é o índice único, com retentativa.
+    //
+    // A retentativa precisa de uma transação NOVA: no Postgres, a violação de
+    // unicidade aborta a transação inteira, e o comando seguinte falha com um
+    // erro que não é P2002. Antes desta correção, o segundo formulário com o
+    // mesmo título respondia 500.
+    const titulo = `Mesmo título ${Date.now()}`;
+
+    const primeiro = await criarFormulario(titulo);
+    const segundo = await criarFormulario(titulo);
+
+    expect(primeiro.slugPublic).not.toBe(segundo.slugPublic);
+    expect(segundo.slugPublic.startsWith(primeiro.slugPublic)).toBe(true);
+  });
+
   it('cria um formulário em rascunho, com uma página vazia', async () => {
     const form = await criarFormulario(`Contato ${Date.now()}`);
 
     expect(form.status).toBe('draft');
     expect(form.revision).toBe(0);
-    expect(form.slugPublic).toMatch(/^contato-/);
+    // O slug deriva do título, e o título leva o prefixo de teste.
+    expect(form.slugPublic).toMatch(/^suite-contato-/);
   });
 
   it('grava a definição e incrementa a revisão', async () => {

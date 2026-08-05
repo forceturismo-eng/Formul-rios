@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { renderMetaTags, type MetaResolvido } from '@forms/shared';
 import { env } from '../config/env.js';
 
@@ -18,8 +18,15 @@ import { env } from '../config/env.js';
  * mesmo bundle da SPA assume a partir do `<body>`.
  */
 
-/** Onde o `npm run build -w @forms/web` deixa o index.html. */
-const DIST = resolve(process.cwd(), 'apps/web/dist/index.html');
+/**
+ * Onde o `npm run build -w @forms/web` deixa o index.html.
+ *
+ * Resolvido a partir DESTE arquivo, não de `process.cwd()`. A API roda com cwd
+ * em `apps/api` quando iniciada pelo workspace e na raiz quando iniciada de
+ * outro jeito — e com `cwd` o caminho quebrava em silêncio num dos dois casos,
+ * fazendo a rota devolver JSON a um navegador.
+ */
+const DIST = fileURLToPath(new URL('../../../web/dist/index.html', import.meta.url));
 
 let shellEmCache: string | null = null;
 let jaAvisou = false;

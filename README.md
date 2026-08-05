@@ -10,8 +10,8 @@ para múltiplas empresas, com foco no mercado brasileiro.
 > plataforma com MFA e impersonação auditada.
 >
 > **Pendências conhecidas:** colaboração por tela (convites, comentários,
-> feed), NFS-e, dunning por e-mail, e2e com Playwright e OpenAPI.
-> Ver [Roteiro](#roteiro).
+> feed), NFS-e e dunning por e-mail — os dois últimos dependem de credenciais
+> externas. Ver [Roteiro](#roteiro).
 
 ---
 
@@ -67,16 +67,18 @@ por isolamento — que é o pior tipo de teste verde.
 ## Testes
 
 ```bash
-npm test                # tudo
+npm test                # tudo, menos e2e
 npm run test:isolation  # a suíte que não pode falhar
 npm run test:unit       # regras puras, sem banco
+npm run test:e2e        # navegador de verdade (sobe API e web sozinho)
 ```
 
 | Suíte | O que cobre |
 |---|---|
 | `unit` | RBAC, planos, quotas, microcopy, aritmética de centavos, CPF/CNPJ, runtime do formulário, validação de upload, roteador do web, guarda de SQL cru |
 | `isolation` | Fronteira entre empresas: HTTP, banco, tokens, `Host`, criptografia, arquivos e exportações |
-| `integration` | Autenticação, ciclo do formulário, submissão pública, recebimentos, exportação, enforcement de quotas e cobrança |
+| `integration` | Autenticação, ciclo do formulário, submissão pública, recebimentos, exportação, enforcement de quotas, cobrança, branding, IA e documentação |
+| `e2e` | Navegador de verdade: cadastro, criação, publicação, resposta pública e leitura no painel |
 
 A suíte de isolamento sobe a **mesma** aplicação que roda em produção, contra o
 **mesmo** Postgres com RLS ligado. Nada é substituído por mock: um teste de
@@ -444,8 +446,9 @@ em silêncio, e documentação errada é pior do que ausente.
       atividades (o backend de convites e comentários já existe).
 - [~] **Fase 5 — Fechamento.** Admin da plataforma com MFA obrigatório,
       métricas por agregado e impersonação somente leitura auditada dos dois
-      lados, OpenAPI derivado do código e guia de DNS por provedor brasileiro
-      ([`docs/guia-dns.md`](docs/guia-dns.md)). **Falta:** e2e com Playwright.
+      lados, OpenAPI derivado do código, guia de DNS por provedor brasileiro
+      ([`docs/guia-dns.md`](docs/guia-dns.md)) e testes ponta a ponta com
+      Playwright no CI.
 
 ---
 

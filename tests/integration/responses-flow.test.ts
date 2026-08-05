@@ -4,6 +4,7 @@ import { ORG_A } from '../helpers/orgs.js';
 import { generateExport, toCsv } from '../../apps/api/src/queue/export-worker.js';
 import { storage } from '../../apps/api/src/storage/provider.js';
 import { withTenant } from '../../apps/api/src/db/tenant.js';
+import { limparFormulariosDeTeste, PREFIXO_DE_TESTE } from '../helpers/limpeza.js';
 
 /**
  * Painel de recebimentos, de ponta a ponta.
@@ -59,7 +60,7 @@ async function enviar(values: Record<string, unknown>) {
 beforeAll(async () => {
   token = (await loginAs(ORG_A.owner)).accessToken;
 
-  const criado = await api('POST', '/v1/forms', { title: `Recebimentos ${Date.now()}` });
+  const criado = await api('POST', '/v1/forms', { title: `${PREFIXO_DE_TESTE}Recebimentos ${Date.now()}` });
   const form = criado.json() as { id: string; slugPublic: string };
   formId = form.id;
   slug = form.slugPublic;
@@ -72,7 +73,10 @@ beforeAll(async () => {
   await enviar({ nome: 'Carla Dias', email: 'carla@exemplo.com.br', origem: 'site' });
 });
 
-afterAll(closeApp);
+afterAll(async () => {
+  await limparFormulariosDeTeste(ORG_A.id);
+  await closeApp();
+});
 
 describe('listagem', () => {
   it('lista as respostas decifradas', async () => {

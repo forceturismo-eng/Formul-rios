@@ -106,7 +106,10 @@ export async function formRoutes(app: FastifyInstance): Promise<void> {
     assertCan(subject, 'form:create');
 
     const input = createBody.parse(request.body);
-    const form = await withRequestTenant(request, (ctx) => createForm({ ctx, subject, ...input }));
+    // `createForm` abre a própria transação, uma por tentativa de slug: uma
+    // violação de unicidade aborta a transação no Postgres, e retentar dentro
+    // dela não funciona.
+    const form = await createForm({ organizationId: subject.organizationId, subject, ...input });
 
     return reply.status(201).send(serializeForm(form));
   });
@@ -161,7 +164,7 @@ export async function formRoutes(app: FastifyInstance): Promise<void> {
     const subject = subjectOf(request);
     const { id } = uuidParam.parse(request.params);
 
-    const form = await withRequestTenant(request, (ctx) => duplicateForm(ctx, subject, id));
+    const form = await duplicateForm(subject.organizationId, subject, id);
     return reply.status(201).send(serializeForm(form));
   });
 

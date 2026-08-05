@@ -14,7 +14,7 @@ import {
   type Subject,
 } from '@forms/shared';
 import { Prisma } from '@prisma/client';
-import type { TenantContext } from '../db/tenant.js';
+import { withTenant, type TenantContext } from '../db/tenant.js';
 import { auditLogsRepository, formVersionsRepository, formsRepository } from '../db/repositories.js';
 import { AppError, conflict, notFound, validationError } from '../http/errors.js';
 import { assertCanCreateForm } from './usage-service.js';
@@ -124,49 +124,65 @@ const SCHEMA_INICIAL: FormDefinition = formSchema.parse({
 });
 
 export interface CreateFormParams {
-  ctx: TenantContext;
+  organizationId: string;
   subject: Subject;
   title: string;
   description?: string;
   definition?: unknown;
 }
 
+/**
+ * Cria um formulário.
+ *
+ * Recebe `organizationId` e abre a própria transação — uma POR TENTATIVA, e
+ * essa é a parte que importa.
+ *
+ * O slug público é único globalmente, e o RLS impede (corretamente) consultar
+ * os slugs das outras empresas para checar colisão antes. Quem resolve é o
+ * índice único, com retentativa.
+ *
+ * Só que a retentativa precisa de uma transação NOVA. No Postgres, uma
+ * violação de unicidade aborta a transação inteira: dentro dela, o próximo
+ * comando falha com "current transaction is aborted", que não é P2002 e escapa
+ * do `catch`. O resultado era 500 na segunda pessoa que criasse um formulário
+ * com o mesmo título — e o retry parecia estar lá, funcionando.
+ *
+ * Encontrado pelo teste ponta a ponta, ao criar dois formulários sem título.
+ */
 export async function createForm(params: CreateFormParams) {
-  const { ctx, subject } = params;
-
-  // Enforcement ANTES da ação, no backend. A UI esconder o botão é cortesia;
-  // quem impede a criação é esta linha (seção 6.2).
-  await assertCanCreateForm(ctx);
-
-  const definition = params.definition ? formSchema.parse(params.definition) : SCHEMA_INICIAL;
-  assertSchemaFitsPlan(definition, await currentPlanCode(ctx));
-
+  const { subject } = params;
   const base = slugify(params.title) || 'formulario';
   let slug = isReservedSlug(base) ? withRandomSuffix(base) : base;
 
-  // O slug público é único globalmente, e o RLS impede consultar os slugs das
-  // outras empresas para checar colisão — e deveria mesmo impedir. Quem
-  // resolve é o índice único, com retentativa.
   for (let tentativa = 0; tentativa < 6; tentativa++) {
     try {
-      const form = await formsRepository.create(ctx, {
-        createdBy: subject.userId,
-        title: params.title.trim(),
-        description: params.description?.trim() ?? null,
-        slugPublic: slug,
-        schemaJson: definition as unknown as Prisma.InputJsonValue,
-        status: 'draft',
-      });
+      return await withTenant(params.organizationId, async (ctx) => {
+        // Enforcement ANTES da ação, no backend. A UI esconder o botão é
+        // cortesia; quem impede a criação é esta linha (seção 6.2).
+        await assertCanCreateForm(ctx);
 
-      await auditLogsRepository.record(ctx, {
-        actorUserId: subject.userId,
-        action: 'form.created',
-        resourceType: 'form',
-        resourceId: form.id,
-        metadataJson: { title: form.title },
-      });
+        const definition = params.definition ? formSchema.parse(params.definition) : SCHEMA_INICIAL;
+        assertSchemaFitsPlan(definition, await currentPlanCode(ctx));
 
-      return form;
+        const form = await formsRepository.create(ctx, {
+          createdBy: subject.userId,
+          title: params.title.trim(),
+          description: params.description?.trim() ?? null,
+          slugPublic: slug,
+          schemaJson: definition as unknown as Prisma.InputJsonValue,
+          status: 'draft',
+        });
+
+        await auditLogsRepository.record(ctx, {
+          actorUserId: subject.userId,
+          action: 'form.created',
+          resourceType: 'form',
+          resourceId: form.id,
+          metadataJson: { title: form.title },
+        });
+
+        return form;
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         slug = withRandomSuffix(base);
@@ -358,16 +374,28 @@ export async function deleteForm(ctx: TenantContext, subject: Subject, formId: s
   });
 }
 
-export async function duplicateForm(ctx: TenantContext, subject: Subject, formId: string) {
-  const { form } = await loadFormFor(ctx, subject, formId, 'form:read');
-  if (!form) throw notFound();
+/**
+ * Duplica um formulário.
+ *
+ * A leitura acontece numa transação, e a criação abre a dela — não dá para
+ * aninhar, porque `createForm` precisa de uma transação nova por tentativa de
+ * slug. Entre uma e outra existe uma janela em que o original pode mudar; ela
+ * é aceitável, porque o que sai é uma CÓPIA e ninguém espera que ela acompanhe
+ * o original.
+ */
+export async function duplicateForm(organizationId: string, subject: Subject, formId: string) {
+  const original = await withTenant(organizationId, async (ctx) => {
+    const { form } = await loadFormFor(ctx, subject, formId, 'form:read');
+    if (!form) throw notFound();
+    return { title: form.title, description: form.description, schemaJson: form.schemaJson };
+  });
 
   return createForm({
-    ctx,
+    organizationId,
     subject,
-    title: `${form.title} (cópia)`,
-    description: form.description ?? undefined,
-    definition: form.schemaJson,
+    title: `${original.title} (cópia)`,
+    description: original.description ?? undefined,
+    definition: original.schemaJson,
   });
 }
 
