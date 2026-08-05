@@ -166,6 +166,7 @@ prisma/         schema, migrations (RLS incluso), seed
 infra/          docker-compose, Caddyfile, Dockerfile
 tests/          unit, integration, isolation
 docs/adr/       decisões arquiteturais
+docs/guia-dns.md  configuração de DNS por provedor brasileiro
 ```
 
 ---
@@ -345,6 +346,19 @@ faixa privada cancela o envio.
 Mais `organizations/current`, `members`, `invitations`, `audit-logs` e o
 catálogo público `plans`.
 
+### Documentação
+
+| Rota | O que é |
+|---|---|
+| `/openapi.json` | Documento OpenAPI 3.1 |
+| `/docs` | Visualizador, autocontido e sem CDN |
+
+O documento é **montado a partir das constantes do código** — escopos de chave,
+eventos de webhook, tipos de análise, códigos de erro e planos vêm dos mesmos
+lugares que a aplicação usa. Um escopo novo aparece na documentação sozinho, e
+há testes que falham se ele não aparecer. Documentação escrita à parte envelhece
+em silêncio, e documentação errada é pior do que ausente.
+
 ### Erros
 
 ```json
@@ -430,8 +444,8 @@ catálogo público `plans`.
       atividades (o backend de convites e comentários já existe).
 - [~] **Fase 5 — Fechamento.** Admin da plataforma com MFA obrigatório,
       métricas por agregado e impersonação somente leitura auditada dos dois
-      lados. **Falta:** e2e com Playwright, OpenAPI e o guia de DNS por
-      provedor brasileiro.
+      lados, OpenAPI derivado do código e guia de DNS por provedor brasileiro
+      ([`docs/guia-dns.md`](docs/guia-dns.md)). **Falta:** e2e com Playwright.
 
 ---
 

@@ -11,6 +11,7 @@ import { adminAuthRoutes, adminRoutes } from './routes/admin.js';
 import { aiRoutes } from './routes/ai.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes, paymentWebhookRoutes } from './routes/billing.js';
+import { docsRoutes } from './routes/docs.js';
 import { domainRoutes, internalDomainRoutes } from './routes/domains.js';
 import { fileRoutes } from './routes/files.js';
 import { integrationRoutes, publicApiRoutes } from './routes/integrations.js';
@@ -121,6 +122,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerErrorHandler(app);
 
   app.get('/health', async () => ({ status: 'ok', product: env.branding.productName }));
+
+  // Documentação da API: /openapi.json e /docs. Sem autenticação — a API é
+  // pública no sentido de que quem integra precisa lê-la antes de ter conta.
+  await app.register(docsRoutes);
 
   // Renderizador público — as únicas rotas servidas também nos domínios de
   // clientes. Sem prefixo /v1: a URL /f/<slug> é divulgada pelo cliente e
