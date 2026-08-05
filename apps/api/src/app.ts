@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth.js';
 import { billingRoutes, paymentWebhookRoutes } from './routes/billing.js';
 import { domainRoutes, internalDomainRoutes } from './routes/domains.js';
 import { fileRoutes } from './routes/files.js';
+import { integrationRoutes, publicApiRoutes } from './routes/integrations.js';
 import { formRoutes } from './routes/forms.js';
 import { organizationRoutes, planRoutes } from './routes/organizations.js';
 import { publicFormRoutes } from './routes/public-forms.js';
@@ -131,6 +132,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(responseRoutes, { prefix: '/v1' });
   await app.register(billingRoutes, { prefix: '/v1' });
   await app.register(domainRoutes, { prefix: '/v1' });
+  await app.register(integrationRoutes, { prefix: '/v1' });
+
+  // API pública: autenticada por chave, não por sessão. Prefixo próprio para
+  // que a versão dela evolua sem arrastar o painel junto.
+  await app.register(publicApiRoutes, { prefix: '/api/v1' });
   await app.register(resourceRoutes, { prefix: '/v1' });
 
   return app;

@@ -86,11 +86,18 @@ describe('configuração do banco', () => {
     //   subscriptions              -> app_subscription_org (webhook do gateway)
     //   billing_profiles           -> app_billing_customer_org (idem)
     //   custom_domains             -> app_custom_domain_org (renderizador e Caddy)
+    //   api_keys                   -> app_api_key_org (API pública)
+    //
+    // `api_keys` entrou com a API pública: o request chega só com a chave no
+    // header, e descobrir de qual organização ela é exige ler a tabela antes de
+    // haver contexto de tenant — mesmo ovo e galinha do login. O que autoriza a
+    // consulta é a posse do segredo, já que a função recebe o HASH dele.
     //
     // Esta lista é um portão de propósito: crescer a superfície do único papel
     // com BYPASSRLS precisa ser uma decisão consciente, com este teste
     // falhando primeiro e obrigando a justificativa.
     expect(tabelas).toEqual([
+      'api_keys',
       'billing_profiles',
       'custom_domains',
       'forms',
@@ -102,7 +109,7 @@ describe('configuração do banco', () => {
     ]);
 
     // E o que NÃO pode estar aqui — o conteúdo que os clientes confiam a nós.
-    for (const proibida of ['responses', 'files', 'comments', 'invoices', 'audit_logs', 'api_keys']) {
+    for (const proibida of ['responses', 'files', 'comments', 'invoices', 'audit_logs', 'webhooks']) {
       expect(tabelas, `app_bootstrap enxerga ${proibida}`).not.toContain(proibida);
     }
 

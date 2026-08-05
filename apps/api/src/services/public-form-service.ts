@@ -7,6 +7,7 @@ import { encryptResponseData } from '../crypto/envelope.js';
 import { verifyPassword } from '../auth/hashing.js';
 import { AppError, notFound, validationError } from '../http/errors.js';
 import { evaluateResponseQuota, incrementResponseCount, loadUsage } from './usage-service.js';
+import { dispatchWebhooks } from './webhooks-service.js';
 
 /**
  * O lado público: renderizar e receber.
@@ -156,6 +157,31 @@ export interface SubmitResult {
 }
 
 export async function submitPublicForm(params: SubmitParams): Promise<SubmitResult> {
+  const { resultado, evento } = await gravarSubmissao(params);
+
+  // Disparado fora da transação e sem `await`: o respondente já cumpriu a
+  // parte dele. Webhook do dono do formulário com problema não pode virar erro
+  // na tela de quem respondeu.
+  if (evento) {
+    void dispatchWebhooks(evento).catch(() => undefined);
+  }
+
+  return resultado;
+}
+
+interface SubmissaoGravada {
+  resultado: SubmitResult;
+  /** Ausente quando nada foi realmente gravado (honeypot). */
+  evento?: {
+    organizationId: string;
+    event: 'response.created';
+    formId: string;
+    responseId: string;
+    data: Record<string, unknown>;
+  };
+}
+
+async function gravarSubmissao(params: SubmitParams): Promise<SubmissaoGravada> {
   return withPublicForm(params.slug, async (resolved) => {
     const { ctx, form } = resolved;
     const state = await resolveState(resolved);
@@ -181,8 +207,10 @@ export async function submitPublicForm(params: SubmitParams): Promise<SubmitResu
     // que funcionou, e não tenta outra estratégia.
     if (definition.settings.honeypotEnabled && params.honeypot && params.honeypot.trim() !== '') {
       return {
-        responseId: '00000000-0000-4000-8000-000000000000',
-        confirmationMessage: definition.settings.confirmationMessage,
+        resultado: {
+          responseId: '00000000-0000-4000-8000-000000000000',
+          confirmationMessage: definition.settings.confirmationMessage,
+        },
       };
     }
 
@@ -231,9 +259,20 @@ export async function submitPublicForm(params: SubmitParams): Promise<SubmitResu
     }
 
     return {
-      responseId: response.id,
-      confirmationMessage: definition.settings.confirmationMessage,
-      ...(definition.settings.redirectUrl ? { redirectUrl: definition.settings.redirectUrl } : {}),
+      resultado: {
+        responseId: response.id,
+        confirmationMessage: definition.settings.confirmationMessage,
+        ...(definition.settings.redirectUrl ? { redirectUrl: definition.settings.redirectUrl } : {}),
+      },
+      evento: {
+        organizationId: ctx.organizationId,
+        event: 'response.created' as const,
+        formId: form.id,
+        responseId: response.id,
+        // As respostas vão no payload — é o que torna o webhook útil. Por isso
+        // a entrega exige https e vai assinada.
+        data: validacao.values as Record<string, unknown>,
+      },
     };
   });
 }

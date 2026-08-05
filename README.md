@@ -245,6 +245,43 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | POST | `/f/:slug/submit` | Submissão com honeypot e rate limit |
 | POST | `/f/:slug/upload` | Anexo, antes da submissão |
 
+### Integrações — `/v1`
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET/POST/DELETE | `/custom-domains` | Domínio próprio, com instruções de DNS |
+| POST | `/custom-domains/:id/verify` | Confere o DNS agora |
+| GET/POST/DELETE | `/webhooks` | Webhooks de saída; o segredo aparece uma vez |
+| GET/POST/DELETE | `/api-keys` | Chaves da API pública; o segredo aparece uma vez |
+
+### API pública — `/api/v1`, autenticada por chave
+
+`Authorization: Bearer fx_live_…`. Sem cookie, sem sessão. A chave carrega a
+organização; o **escopo** carrega a autorização.
+
+| Método | Rota | Escopo exigido |
+|---|---|---|
+| GET | `/forms` | `forms:read` |
+| GET | `/forms/:id/responses` | `responses:read` |
+| GET | `/me` | — |
+
+Escopo insuficiente responde 403 nomeando o escopo que falta. Recurso de outra
+empresa responde 404, como em todo o resto da API. Detalhes em
+[`docs/adr/0006`](docs/adr/0006-api-publica-e-webhooks.md).
+
+### Webhooks de saída
+
+Cada entrega vai assinada:
+
+```
+X-Formularios-Event: response.created
+X-Formularios-Signature: t=1754400000000,v1=<hmac-sha256 de "<t>.<payload>">
+```
+
+Confira a assinatura **e** a idade do timestamp — a tolerância de referência é
+de 5 minutos. Só https; o host é resolvido antes de cada entrega e um IP em
+faixa privada cancela o envio.
+
 ### Recursos — `/v1`
 
 `GET /v1/{recurso}/:id` para: `forms`, `form-versions`, `responses`, `files`,
@@ -309,6 +346,7 @@ catálogo público `plans`.
 | [0003](docs/adr/0003-autenticacao-e-sessoes.md) | Autenticação, sessões e RBAC |
 | [0004](docs/adr/0004-gateway-de-pagamento.md) | Gateway de pagamento e NFS-e |
 | [0005](docs/adr/0005-tls-para-dominios-de-clientes.md) | TLS para domínios de clientes |
+| [0006](docs/adr/0006-api-publica-e-webhooks.md) | API pública por chave e webhooks de saída |
 
 ---
 

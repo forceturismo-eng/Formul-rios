@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Role } from '@forms/shared';
+import { can, type Action, type Role } from '@forms/shared';
 import { api, onSessionLost, setAccessToken } from './api.js';
 
 /**
@@ -129,10 +129,24 @@ export function useIsAuthenticated(): boolean {
   return useSession((estado) => estado.user !== null);
 }
 
-export function usePermission(): { role: Role | null; is: (...papeis: Role[]) => boolean } {
+export function usePermission(): {
+  role: Role | null;
+  is: (...papeis: Role[]) => boolean;
+  can: (acao: Action) => boolean;
+} {
   const role = useSession((estado) => estado.organization?.role ?? null);
+  const userId = useSession((estado) => estado.user?.id ?? null);
+  const organizationId = useSession((estado) => estado.organization?.id ?? null);
+
   return {
     role,
     is: (...papeis) => (role ? papeis.includes(role) : false),
+    // Mesma tabela de permissões do backend, vinda do pacote compartilhado.
+    // Esconder o que o usuário não pode fazer é cortesia; quem recusa de
+    // verdade é a API, que refaz esta checagem no servidor.
+    can: (acao) =>
+      role !== null && userId !== null && organizationId !== null
+        ? can({ userId, organizationId, role }, acao)
+        : false,
   };
 }

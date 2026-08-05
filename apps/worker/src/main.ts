@@ -1,4 +1,5 @@
 import { startExportWorker } from '../../api/src/queue/export-worker.js';
+import { startWebhookWorker } from '../../api/src/queue/webhook-worker.js';
 import { closeQueues } from '../../api/src/queue/queues.js';
 import { disconnectPrisma } from '../../api/src/db/prisma.js';
 
@@ -14,7 +15,7 @@ import { disconnectPrisma } from '../../api/src/db/prisma.js';
  * isolamento de tenant seria uma segunda chance de errar.
  */
 
-const workers = [startExportWorker()];
+const workers = [startExportWorker(), startWebhookWorker()];
 
 console.info(`workers no ar: ${workers.length}`);
 

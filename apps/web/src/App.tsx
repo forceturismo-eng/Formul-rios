@@ -10,6 +10,7 @@ import { PaginaFormularios } from './pages/formularios.js';
 import { PaginaBuilder } from './pages/builder.js';
 import { PaginaRespostas } from './pages/respostas.js';
 import { PaginaCobranca, PaginaEquipe } from './pages/cobranca.js';
+import { PaginaIntegracoes } from './pages/integracoes.js';
 import { PaginaFormularioPublico } from './pages/formulario-publico.js';
 
 const cliente = new QueryClient({
@@ -64,6 +65,7 @@ function Rotas() {
   if (path === '/verificar-email') return <PaginaVerificarEmail />;
   if (path === '/formularios') return <PaginaFormularios />;
   if (path === '/equipe') return <PaginaEquipe />;
+  if (path === '/integracoes') return <PaginaIntegracoes />;
   if (path === '/cobranca' || path === '/planos') return <PaginaCobranca />;
 
   const respostas = matchPath('/formularios/:id/respostas', path);

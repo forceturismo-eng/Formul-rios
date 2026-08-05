@@ -149,6 +149,51 @@ export async function resolveCustomDomainOrg(
 }
 
 /**
+ * Organização de uma chave de API, a partir do hash dela.
+ *
+ * O que autoriza a consulta é a posse da própria chave: só quem tem o segredo
+ * produz esse hash. Devolve `revokedAt` e `expiresAt` sem filtrar, para que o
+ * MOTIVO da recusa possa ser registrado — "chave revogada" e "chave
+ * inexistente" respondem igual ao cliente, mas o log precisa distinguir.
+ */
+export interface ApiKeyLookup {
+  apiKeyId: string;
+  organizationId: string;
+  scopes: string[];
+  revokedAt: Date | null;
+  expiresAt: Date | null;
+  subscriptionStatus: string;
+}
+
+export async function resolveApiKeyOrg(
+  tx: Prisma.TransactionClient,
+  keyHash: string,
+): Promise<ApiKeyLookup | null> {
+  const rows = await tx.$queryRaw<
+    Array<{
+      api_key_id: string;
+      organization_id: string;
+      scopes: string[];
+      revoked_at: Date | null;
+      expires_at: Date | null;
+      subscription_status: string;
+    }>
+  >`SELECT * FROM app_api_key_org(${keyHash})`;
+
+  const row = rows[0];
+  return row
+    ? {
+        apiKeyId: row.api_key_id,
+        organizationId: row.organization_id,
+        scopes: row.scopes,
+        revokedAt: row.revoked_at,
+        expiresAt: row.expires_at,
+        subscriptionStatus: row.subscription_status,
+      }
+    : null;
+}
+
+/**
  * Organização de uma assinatura, a partir do id dela no gateway.
  *
  * Usada só no processamento de webhook de pagamento. O que autoriza a consulta
