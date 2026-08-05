@@ -106,6 +106,20 @@ formulário; e-mail é o canal menos controlado que existe.
 ninguém dá papel acima do próprio, ninguém mexe em quem está acima, e o último
 `owner` não pode ser rebaixado nem sair.
 
+**Ativar o MFA consome a janela TOTP.** É o que impede reusar um código
+interceptado — e é também por que o teste que ativa e depois entra precisa do
+código da janela *seguinte*, não do mesmo. Ver `codigoDaProximaJanela` em
+`tests/integration/mfa-flow.test.ts`.
+
+**O segundo fator é cobrado depois da senha e das memberships.** Pedir o código
+antes de conferir a senha responderia `mfa_required` para e-mail qualquer,
+dizendo quais contas existem.
+
+**"Serve uma vez" só vale se quem decide for o `WHERE` do UPDATE.** Duas
+tentativas simultâneas leem o mesmo estado antes de qualquer uma gravar, e a
+checagem em memória deixa as duas passarem. Daí os `updateMany` condicionais em
+`verificarSegundoFator` — o Postgres reavalia o `WHERE` depois do lock da linha.
+
 **O rate limit vive no Redis, com prefixo por processo em teste.** Ele passou a
 ser compartilhado e a sobreviver 15 minutos; sem o prefixo, uma execução da
 suíte estouraria o limite da seguinte. E `enableOfflineQueue` fica LIGADO: com
@@ -116,8 +130,8 @@ ele desligado, os comandos emitidos antes de a conexão ficar pronta falham e o
 
 ## Estado
 
-Fases 1 a 5 concluídas, colaboração inclusa. 776 testes de suíte + 3 e2e;
-lint e typecheck limpos.
+Fases 1 a 5 concluídas, colaboração e MFA de clientes inclusos. 791 testes de
+suíte + 3 e2e; lint e typecheck limpos.
 
 Branch de trabalho: `claude/criar-sistema-g1np9i`.
 
@@ -129,7 +143,6 @@ Branch de trabalho: `claude/criar-sistema-g1np9i`.
 | Dunning por e-mail | Depende de SMTP/Resend real; o mailer atual é em memória com outbox |
 | Mailer real | Idem |
 | Driver S3 | Existe a interface `StorageProvider`; o driver ativo grava em disco |
-| MFA para usuários finais | Existe só para o admin da plataforma |
 | Builder multi-página e editor de lógica | O schema suporta; a interface ainda não |
 | Checkout com cartão | Pix e boleto funcionam |
 

@@ -229,6 +229,11 @@ model User {
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
   mfaSecret       String?   @map("mfa_secret")
   mfaEnabledAt    DateTime? @map("mfa_enabled_at") @db.Timestamptz(6)
+  /// Janela TOTP já consumida. Impede reapresentar o mesmo código dentro dos
+  /// 90 segundos em que ele continua matematicamente válido.
+  mfaLastWindow   BigInt?   @map("mfa_last_window")
+  /// Hashes dos códigos de recuperação. Cada um serve UMA vez e sai da lista.
+  mfaRecoveryCodes String[] @map("mfa_recovery_codes")
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -49,7 +49,7 @@ interface SessionState {
   /** `true` até sabermos se há sessão — evita piscar a tela de login. */
   loading: boolean;
 
-  entrar: (email: string, password: string, organizationId?: string) => Promise<void>;
+  entrar: (email: string, password: string, organizationId?: string, mfaCode?: string) => Promise<void>;
   registrar: (input: { name: string; email: string; password: string; organizationName: string }) => Promise<void>;
   sair: () => Promise<void>;
   trocarEmpresa: (organizationId: string) => Promise<void>;
@@ -73,10 +73,15 @@ export const useSession = create<SessionState>((set, get) => ({
     });
   },
 
-  async entrar(email, password, organizationId) {
+  async entrar(email, password, organizationId, mfaCode) {
     const resposta = await api<SessionResponse>('/v1/auth/login', {
       method: 'POST',
-      body: { email, password, ...(organizationId ? { organizationId } : {}) },
+      body: {
+        email,
+        password,
+        ...(organizationId ? { organizationId } : {}),
+        ...(mfaCode ? { mfaCode } : {}),
+      },
     });
     get().aplicarSessao(resposta);
   },

@@ -55,6 +55,14 @@ export const loginSchema = z.object({
    * sozinho — o servidor confere se existe membership antes de emitir o token.
    */
   organizationId: z.string().uuid().optional(),
+  /**
+   * Segundo fator, quando a conta tem.
+   *
+   * O mesmo campo aceita o código do app (6 dígitos) e o de recuperação (10
+   * caracteres com hífen). Quem perdeu o celular não deve ter que descobrir em
+   * qual campo digitar — o formato distingue sozinho no servidor.
+   */
+  mfaCode: z.string().trim().min(6).max(20).optional(),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 

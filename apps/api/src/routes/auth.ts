@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import {
   acceptInvitationSchema,
   loginSchema,
@@ -15,6 +16,15 @@ import {
   requestUserAgentHash,
 } from '../http/context.js';
 import { unauthorized } from '../http/errors.js';
+import { prisma } from '../db/prisma.js';
+import { verifyPassword } from '../auth/hashing.js';
+import {
+  ativarMfa,
+  desativarMfa,
+  estadoDoMfa,
+  iniciarMfa,
+  regenerarCodigos,
+} from '../services/mfa-service.js';
 import { env } from '../config/env.js';
 import { REFRESH_COOKIE_NAME, refreshCookieOptions } from '../auth/tokens.js';
 import {
@@ -89,6 +99,57 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // ---------------------------------------------------------------------------
+  // Verificação em duas etapas
+  //
+  // Opcional para o cliente, diferente do admin da plataforma, onde é
+  // obrigatória. Dessa diferença sai o resto: existe como desligar, desligar
+  // exige senha, e há códigos de recuperação para quem perde o celular.
+  // ---------------------------------------------------------------------------
+
+  app.get('/mfa', { preHandler: requireAuth }, async (request) => {
+    return estadoDoMfa(getAuth(request).userId);
+  });
+
+  /** Começa a configuração. NÃO liga o MFA — ligar exige provar o primeiro código. */
+  app.post('/mfa/setup', { preHandler: requireAuth }, async (request) => {
+    return iniciarMfa(getAuth(request).userId);
+  });
+
+  app.post('/mfa/activate', { preHandler: requireAuth }, async (request) => {
+    const { code } = z.object({ code: z.string().min(6).max(10) }).parse(request.body);
+    const resultado = await ativarMfa(getAuth(request).userId, code);
+
+    return {
+      ...resultado,
+      aviso:
+        'Guarde estes códigos agora, fora do celular. Cada um serve uma vez, e é assim que você entra ' +
+        'se perder o aparelho.',
+    };
+  });
+
+  /**
+   * Desliga. Exige a SENHA, não só a sessão.
+   *
+   * Uma sessão roubada não pode remover a proteção que existe justamente para o
+   * caso de a senha ter vazado — seria a porta de trás do próprio recurso.
+   */
+  app.post('/mfa/disable', { preHandler: requireAuth }, async (request) => {
+    const { password } = z.object({ password: z.string().min(1).max(200) }).parse(request.body);
+    const auth = getAuth(request);
+
+    await desativarMfa(auth.userId, await conferirSenha(auth.userId, password));
+    return { enabled: false };
+  });
+
+  app.post('/mfa/recovery-codes', { preHandler: requireAuth }, async (request) => {
+    const { password } = z.object({ password: z.string().min(1).max(200) }).parse(request.body);
+    const auth = getAuth(request);
+
+    const codigos = await regenerarCodigos(auth.userId, await conferirSenha(auth.userId, password));
+    return { recoveryCodes: codigos, aviso: 'Os códigos anteriores deixaram de valer.' };
+  });
+
   app.post('/refresh', async (request, reply) => {
     const rawToken = request.cookies[REFRESH_COOKIE_NAME];
     if (!rawToken) throw unauthorized('Sessão expirada. Faça login de novo.');
@@ -141,4 +202,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       emailVerified: auth.emailVerified,
     };
   });
+}
+
+/**
+ * Confere a senha atual de quem já está logado.
+ *
+ * Devolve booleano em vez de lançar: quem chama decide a mensagem, e as duas
+ * chamadas daqui querem dizer coisas diferentes ("para desligar" e "para gerar
+ * novos códigos").
+ */
+async function conferirSenha(userId: string, senha: string): Promise<boolean> {
+  const usuario = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+  if (!usuario) return false;
+
+  return verifyPassword(usuario.passwordHash, senha);
 }

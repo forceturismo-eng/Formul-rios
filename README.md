@@ -215,7 +215,7 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | Método | Rota | O que faz |
 |---|---|---|
 | POST | `/register` | Cria organização + owner + sessão |
-| POST | `/login` | 5 tentativas por 15 min, por IP |
+| POST | `/login` | 5 tentativas por 15 min, por IP. Com MFA ligado, responde `mfa_required` (401) até vir o `mfaCode` |
 | POST | `/refresh` | Rotação com detecção de reuso |
 | POST | `/logout` | Revoga a família da sessão |
 | POST | `/verify-email` | Token de uso único |
@@ -223,6 +223,11 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | POST | `/accept-invitation` | Cria o vínculo com a empresa |
 | POST | `/switch-organization` | Troca de workspace |
 | GET | `/me` | Contexto autenticado |
+| GET | `/mfa` | Estado do segundo fator e quantos códigos de recuperação restam |
+| POST | `/mfa/setup` | Gera a chave e a URI `otpauth://`. **Não liga** o MFA |
+| POST | `/mfa/activate` | Confirma com o primeiro código e devolve os 10 códigos de recuperação |
+| POST | `/mfa/disable` | Desliga; exige a senha de novo |
+| POST | `/mfa/recovery-codes` | Novos códigos; invalida os anteriores. Exige a senha |
 
 ### Formulários — `/v1`
 
@@ -400,6 +405,11 @@ em silêncio, e documentação errada é pior do que ausente.
 - **Sessões** — access de 15 min no header; refresh de 30 dias em cookie
   `httpOnly` com `Path=/v1/auth`. Segredos separados. Reuso de refresh derruba
   a família inteira.
+- **Verificação em duas etapas** — opcional para os clientes (`/seguranca`),
+  obrigatória para o admin da plataforma. TOTP com janela consumida gravada,
+  então um código interceptado não serve duas vezes. Dez códigos de
+  recuperação, guardados como hash e válidos uma vez cada. O segundo fator é
+  cobrado **depois** da senha: pedir antes diria que a conta existe.
 - **Cabeçalhos** — Helmet com CSP estrita, CORS por lista fechada, HSTS só em
   produção.
 - **PII** — IP e user-agent gravados como HMAC com sal. Logs com redação

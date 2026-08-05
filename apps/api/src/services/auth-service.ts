@@ -27,6 +27,7 @@ import {
 import { sendMail, verificationEmail } from '../mail/mailer.js';
 import { AppError, conflict, unauthorized, validationError } from '../http/errors.js';
 import { env } from '../config/env.js';
+import { verificarSegundoFator } from './mfa-service.js';
 
 /**
  * Fluxos de autenticação.
@@ -243,6 +244,8 @@ export interface LoginParams {
   email: string;
   password: string;
   organizationId?: string;
+  /** Código do app autenticador OU código de recuperação, quando a conta tem MFA. */
+  mfaCode?: string;
   meta: SessionMeta;
 }
 
@@ -250,7 +253,7 @@ export async function login(params: LoginParams): Promise<IssuedSession> {
   const email = params.email.trim().toLowerCase();
 
   const user = await withoutTenant((tx) =>
-    tx.user.findUnique({ where: { email }, select: { id: true, passwordHash: true } }),
+    tx.user.findUnique({ where: { email }, select: { id: true, passwordHash: true, mfaEnabledAt: true } }),
   );
 
   // E-mail inexistente também paga o custo de um Argon2id, para que o tempo de
@@ -271,6 +274,17 @@ export async function login(params: LoginParams): Promise<IssuedSession> {
     : accepted[0];
 
   if (!chosen) throw unauthorized('E-mail ou senha incorretos.');
+
+  // Segundo fator, quando a conta tem.
+  //
+  // Conferido DEPOIS da senha e das memberships: pedir o código antes de saber
+  // que a senha está certa diria a quem tentou que a conta existe e tem MFA.
+  if (user.mfaEnabledAt) {
+    if (!params.mfaCode) {
+      throw new AppError('mfa_required', 'Informe o código do seu aplicativo autenticador.');
+    }
+    await verificarSegundoFator(user.id, params.mfaCode);
+  }
 
   await withoutTenant((tx) => tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }));
 

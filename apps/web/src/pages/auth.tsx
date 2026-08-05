@@ -38,6 +38,15 @@ export function PaginaLogin() {
   const navigate = useNavigate();
   const [erro, setErro] = useState<string | null>(null);
 
+  /**
+   * O campo do segundo fator só aparece quando o servidor diz que a conta tem.
+   *
+   * Pedir o código antes disso vazaria quais contas usam MFA — e mostrar o
+   * campo para todo mundo confundiria quem não usa.
+   */
+  const [pedeSegundoFator, setPedeSegundoFator] = useState(false);
+  const [codigo, setCodigo] = useState('');
+
   const {
     register,
     handleSubmit,
@@ -47,9 +56,15 @@ export function PaginaLogin() {
   async function aoEnviar(dados: LoginInput): Promise<void> {
     setErro(null);
     try {
-      await entrar(dados.email, dados.password);
+      await entrar(dados.email, dados.password, undefined, codigo || undefined);
       navigate('/formularios');
     } catch (problema) {
+      if (problema instanceof ApiError && problema.code === 'mfa_required') {
+        setPedeSegundoFator(true);
+        setErro(null);
+        return;
+      }
+
       setErro(
         problema instanceof ApiError
           ? problema.message
@@ -85,8 +100,30 @@ export function PaginaLogin() {
           {errors.password && <p className="erro-campo">{errors.password.message}</p>}
         </div>
 
+        {pedeSegundoFator && (
+          <div>
+            <label className="rotulo" htmlFor="mfa-codigo">
+              Código de verificação
+            </label>
+            <input
+              id="mfa-codigo"
+              className="campo text-center font-mono tracking-widest"
+              inputMode="text"
+              autoComplete="one-time-code"
+              maxLength={12}
+              placeholder="000000"
+              value={codigo}
+              onChange={(evento) => setCodigo(evento.target.value)}
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              O número de seis dígitos do seu aplicativo autenticador. Perdeu o celular? Use um dos seus códigos
+              de recuperação aqui mesmo.
+            </p>
+          </div>
+        )}
+
         <button type="submit" className="botao-primario w-full" disabled={isSubmitting}>
-          {isSubmitting ? 'Entrando…' : 'Entrar na minha conta'}
+          {isSubmitting ? 'Entrando…' : pedeSegundoFator ? 'Confirmar' : 'Entrar na minha conta'}
         </button>
       </form>
 

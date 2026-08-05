@@ -18,6 +18,8 @@ export const ERROR_CODES = [
   'email_not_verified',
   /** Recurso que depende de terceiro e ele não está disponível agora. */
   'service_unavailable',
+  /** A conta tem verificação em duas etapas e o código não veio. */
+  'mfa_required',
   'internal_error',
 ] as const;
 
@@ -50,5 +52,8 @@ export const HTTP_STATUS_BY_CODE: Record<ErrorCode, number> = {
   // 503 e não 500: o problema é temporário e de um terceiro, e a diferença
   // muda o que a tela diz e o que o cliente faz a seguir.
   service_unavailable: 503,
+  // 401 com código próprio: a tela precisa distinguir "credencial errada" de
+  // "falta o segundo fator" para saber qual campo mostrar.
+  mfa_required: 401,
   internal_error: 500,
 };

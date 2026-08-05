@@ -11,6 +11,7 @@ import { PaginaBuilder } from './pages/builder.js';
 import { PaginaRespostas } from './pages/respostas.js';
 import { PaginaCobranca } from './pages/cobranca.js';
 import { PaginaEquipe } from './pages/equipe.js';
+import { PaginaSeguranca } from './pages/seguranca.js';
 import { PaginaIntegracoes } from './pages/integracoes.js';
 import { PaginaMarca } from './pages/marca.js';
 import { PaginaAnalises } from './pages/analises.js';
@@ -74,6 +75,7 @@ function Rotas() {
   if (path === '/verificar-email') return <PaginaVerificarEmail />;
   if (path === '/formularios') return <PaginaFormularios />;
   if (path === '/equipe') return <PaginaEquipe />;
+  if (path === '/seguranca') return <PaginaSeguranca />;
   if (path === '/integracoes') return <PaginaIntegracoes />;
   if (path === '/marca') return <PaginaMarca />;
   if (path === '/cobranca' || path === '/planos') return <PaginaCobranca />;

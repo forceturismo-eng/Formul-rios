@@ -139,7 +139,9 @@ export function LayoutPainel({ children }: { children: ReactNode }) {
               </select>
             )}
 
-            <span className="hidden text-sm text-slate-500 sm:inline">{user?.name}</span>
+            <Link to="/seguranca" className="hidden text-sm text-slate-500 hover:text-slate-900 sm:inline">
+              {user?.name}
+            </Link>
             <button type="button" onClick={() => void sair()} className="text-sm text-slate-500 hover:text-slate-900">
               Sair
             </button>
