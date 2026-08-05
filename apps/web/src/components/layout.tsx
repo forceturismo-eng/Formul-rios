@@ -29,9 +29,31 @@ const MENU = [
   { rotulo: 'Cobrança', destino: '/cobranca' },
 ];
 
+interface OrganizacaoAtual {
+  impersonation: { adminId: string; adminEmail: string } | null;
+}
+
 export function LayoutPainel({ children }: { children: ReactNode }) {
   const { user, organization, memberships, sair, trocarEmpresa } = useSession();
   const { path } = useRouter();
+
+  /**
+   * Impersonação (seção 5.5).
+   *
+   * A informação vem do SERVIDOR, não de um token decodificado aqui. Um banner
+   * que a tela pudesse escolher não desenhar não seria garantia nenhuma — e a
+   * garantia é o ponto: o cliente precisa saber que alguém da plataforma está
+   * dentro da conta dele.
+   *
+   * `staleTime: 0` de propósito: esta é a última consulta do app que pode
+   * ficar desatualizada.
+   */
+  const { data: atual } = useQuery({
+    queryKey: ['organizacao-atual', organization?.id],
+    queryFn: () => api<OrganizacaoAtual>('/v1/organizations/current'),
+    enabled: Boolean(organization),
+    staleTime: 0,
+  });
 
   const { data: uso } = useQuery({
     queryKey: ['uso', organization?.id],
@@ -65,6 +87,18 @@ export function LayoutPainel({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
+      {/* Faixa permanente, no topo de tudo e sem botão de fechar. Ela some
+          sozinha quando a impersonação expira, em quinze minutos. */}
+      {atual?.impersonation && (
+        <div
+          role="alert"
+          className="sticky top-0 z-50 bg-amber-500 px-4 py-2 text-center text-sm font-medium text-amber-950"
+        >
+          Acesso da plataforma em andamento — {atual.impersonation.adminEmail} está vendo esta conta.
+          Nenhuma alteração pode ser feita durante o acesso, e ele fica registrado no seu histórico.
+        </div>
+      )}
+
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-6">

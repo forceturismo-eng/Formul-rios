@@ -13,6 +13,7 @@ import { PaginaCobranca, PaginaEquipe } from './pages/cobranca.js';
 import { PaginaIntegracoes } from './pages/integracoes.js';
 import { PaginaMarca } from './pages/marca.js';
 import { PaginaAnalises } from './pages/analises.js';
+import { PaginaAdmin } from './pages/admin.js';
 import { PaginaFormularioPublico } from './pages/formulario-publico.js';
 
 const cliente = new QueryClient({
@@ -46,6 +47,11 @@ function Rotas() {
   // servido também nos domínios dos clientes, onde sessão não existe.
   const formularioPublico = matchPath('/f/:slug', path);
   if (formularioPublico) return <PaginaFormularioPublico slug={formularioPublico['slug'] as string} />;
+
+  // A área do admin não passa pela sessão de cliente: ela tem autenticação
+  // própria, e um cliente logado não deve ser levado para dentro dela por
+  // acidente.
+  if (path === '/admin' || path.startsWith('/admin/')) return <PaginaAdmin />;
 
   if (loading) return <Spinner label="Carregando" />;
 

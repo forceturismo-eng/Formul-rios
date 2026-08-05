@@ -93,6 +93,19 @@ describe('configuração do banco', () => {
     // haver contexto de tenant — mesmo ovo e galinha do login. O que autoriza a
     // consulta é a posse do segredo, já que a função recebe o HASH dele.
     //
+    // `invoices`, `responses`, `usage_counters` e `users` entraram com o admin
+    // da plataforma, e por um motivo DIFERENTE dos demais. Aqui não há um id a
+    // resolver: são as funções de agregação (`app_admin_metrics`,
+    // `app_admin_organizations`, `app_admin_organization`) que precisam contar
+    // linhas de todas as empresas.
+    //
+    // O que torna isso aceitável não é o papel de quem chama — é o FORMATO DO
+    // RETORNO. Nenhuma dessas funções tem coluna de conteúdo no retorno, então
+    // não existe parâmetro capaz de fazê-las devolver uma resposta de cliente.
+    // O caso de `users` é o mais estreito: só o e-mail do owner, para o suporte
+    // conseguir responder a quem abriu o chamado. Ver dado de cliente de
+    // verdade exige impersonar — e impersonar deixa rastro nos dois lados.
+    //
     // Esta lista é um portão de propósito: crescer a superfície do único papel
     // com BYPASSRLS precisa ser uma decisão consciente, com este teste
     // falhando primeiro e obrigando a justificativa.
@@ -102,19 +115,47 @@ describe('configuração do banco', () => {
       'custom_domains',
       'forms',
       'invitations',
+      'invoices',
       'memberships',
       'organizations',
       'refresh_tokens',
+      'responses',
       'subscriptions',
+      'usage_counters',
+      'users',
     ]);
 
     // E o que NÃO pode estar aqui — o conteúdo que os clientes confiam a nós.
-    for (const proibida of ['responses', 'files', 'comments', 'invoices', 'audit_logs', 'webhooks']) {
+    // `responses` está na lista acima, mas apenas para ser CONTADA; estas
+    // outras não têm nem isso.
+    for (const proibida of ['files', 'comments', 'ai_analyses', 'audit_logs', 'webhooks', 'admin_actions']) {
       expect(tabelas, `app_bootstrap enxerga ${proibida}`).not.toContain(proibida);
     }
 
     // Só leitura, em todas.
     expect([...new Set(rows.map((r) => r.privilege_type))]).toEqual(['SELECT']);
+  });
+
+  it('as funções de admin não têm como devolver conteúdo de cliente', () => {
+    // O parágrafo acima só vale se o retorno das funções for mesmo de agregado.
+    // Este caso lê a assinatura no catálogo e confere coluna por coluna, para
+    // que adicionar `data_encrypted` ao retorno um dia falhe aqui primeiro.
+    const proibidas = /data_encrypted|data_key|schema_json|result_json|values|password|secret|token/i;
+
+    return prisma
+      .$queryRaw<Array<{ proname: string; retorno: string }>>`
+        SELECT p.proname, pg_get_function_result(p.oid) AS retorno
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname LIKE 'app\\_admin\\_%'
+      `
+      .then((linhas) => {
+        expect(linhas.length).toBeGreaterThanOrEqual(3);
+
+        for (const linha of linhas) {
+          expect(proibidas.test(linha.retorno), `${linha.proname} devolve ${linha.retorno}`).toBe(false);
+        }
+      });
   });
 
   it('toda tabela com organization_id tem RLS habilitado E forçado', async () => {

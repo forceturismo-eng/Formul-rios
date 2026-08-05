@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
 import { registerAiProvider } from './ai/index.js';
+import { adminAuthRoutes, adminRoutes } from './routes/admin.js';
 import { aiRoutes } from './routes/ai.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes, paymentWebhookRoutes } from './routes/billing.js';
@@ -140,6 +141,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(domainRoutes, { prefix: '/v1' });
   await app.register(integrationRoutes, { prefix: '/v1' });
   await app.register(aiRoutes, { prefix: '/v1' });
+
+  // Área do admin da plataforma. Prefixo próprio, autenticação própria, token
+  // com audience própria — nada compartilhado com a sessão de cliente além do
+  // segredo de assinatura (seção 5.5).
+  await app.register(adminAuthRoutes, { prefix: '/admin/auth' });
+  await app.register(adminRoutes, { prefix: '/admin' });
 
   // API pública: autenticada por chave, não por sessão. Prefixo próprio para
   // que a versão dela evolua sem arrastar o painel junto.

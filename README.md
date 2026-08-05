@@ -3,11 +3,15 @@
 Gerenciamento de formulários online no modelo Jotform, vendido por assinatura
 para múltiplas empresas, com foco no mercado brasileiro.
 
-> **Estado atual: Fases 1 a 3 concluídas**, exceto NFS-e e dunning por
-> e-mail. Existe backend completo (multi-tenant, formulários, submissão,
-> recebimentos, quotas, cobrança) e frontend em React (preços, autenticação,
-> builder, recebimentos, cobrança, renderizador público). Os domínios próprios
-> (Fase 4) ainda não existem. Ver [Roteiro](#roteiro).
+> **Estado atual: Fases 1 a 4 concluídas** e a Fase 5 em andamento. Backend e
+> frontend completos: multi-tenant com RLS, formulários e submissão, quotas e
+> cobrança, domínios próprios com TLS sob demanda, white-label, webhooks, API
+> pública por chave, análises com IA com redação de PII, e o admin da
+> plataforma com MFA e impersonação auditada.
+>
+> **Pendências conhecidas:** colaboração por tela (convites, comentários,
+> feed), NFS-e, dunning por e-mail, e2e com Playwright e OpenAPI.
+> Ver [Roteiro](#roteiro).
 
 ---
 
@@ -246,6 +250,28 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | POST | `/f/:slug/submit` | Submissão com honeypot e rate limit |
 | POST | `/f/:slug/upload` | Anexo, antes da submissão |
 
+### Admin da plataforma — `/admin`
+
+Autenticação **distinta** da dos clientes: tabela própria, token com audience
+própria, MFA obrigatório. Um token de cliente apresentado aqui responde 401.
+
+| Método | Rota | O que faz |
+|---|---|---|
+| POST | `/admin/auth/login` | Senha + código TOTP. Sem MFA configurado, devolve o QR Code |
+| POST | `/admin/auth/mfa/confirm` | Ativa o segundo fator com o primeiro código |
+| GET | `/admin/metrics` | MRR, churn, inadimplência, uso — só números |
+| GET | `/admin/organizations` | Empresas com metadado e contagens |
+| PATCH | `/admin/organizations/:id/status` | Suspender e reativar. Motivo obrigatório |
+| PATCH | `/admin/organizations/:id/plan` | Ajustar plano. Motivo obrigatório |
+| POST | `/admin/organizations/:id/impersonate` | Token de 15 min, **somente leitura** |
+| GET | `/admin/actions` | A trilha do que os operadores fizeram |
+
+O admin lê **agregados**, não linhas de clientes: as funções do banco que servem
+essas telas não têm coluna de conteúdo no retorno. Ver dado de cliente exige
+impersonar — e impersonar registra nos dois lados e acende um banner permanente
+no painel da empresa. Detalhes em
+[`docs/adr/0009`](docs/adr/0009-admin-da-plataforma.md).
+
 ### Análises com IA — `/v1`
 
 | Método | Rota | O que faz |
@@ -378,6 +404,7 @@ catálogo público `plans`.
 | [0006](docs/adr/0006-api-publica-e-webhooks.md) | API pública por chave e webhooks de saída |
 | [0007](docs/adr/0007-white-label-e-css-do-cliente.md) | White-label e CSS escrito pelo cliente |
 | [0008](docs/adr/0008-analises-com-ia-e-redacao-de-pii.md) | Análises com IA e redação de PII |
+| [0009](docs/adr/0009-admin-da-plataforma.md) | Admin da plataforma, MFA e impersonação |
 
 ---
 
@@ -395,11 +422,16 @@ catálogo público `plans`.
       página de preços, painel de cobrança e telas de Pix e boleto.
       **Falta:** emissão de NFS-e e o disparo de dunning por e-mail — os dois
       dependem de credenciais externas.
-- [ ] **Fase 4 — Domínios e diferenciais.** Domínios próprios com Caddy + ACME,
-      white-label, colaboração, análises com IA, webhooks, API pública.
-- [ ] **Fase 5 — Fechamento.** Admin da plataforma com MFA e impersonação
-      auditada, e2e com Playwright, OpenAPI, guia de DNS por provedor
-      brasileiro.
+- [~] **Fase 4 — Domínios e diferenciais.** Domínios próprios com verificação
+      de DNS e Caddy + ACME sob demanda, white-label com CSS sanitizado por
+      lista de permissão, webhooks de saída assinados, API pública por chave
+      com escopos, análises com IA em fila com redação obrigatória de PII.
+      **Falta:** colaboração por tela — convites, comentários e feed de
+      atividades (o backend de convites e comentários já existe).
+- [~] **Fase 5 — Fechamento.** Admin da plataforma com MFA obrigatório,
+      métricas por agregado e impersonação somente leitura auditada dos dois
+      lados. **Falta:** e2e com Playwright, OpenAPI e o guia de DNS por
+      provedor brasileiro.
 
 ---
 

@@ -237,3 +237,78 @@ export async function resolveRefreshTokenOrg(
   const row = rows[0];
   return row ? { tokenId: row.token_id, organizationId: row.organization_id, userId: row.user_id } : null;
 }
+
+// -----------------------------------------------------------------------------
+// Admin da plataforma
+//
+// Estas três atravessam organizações — é o trabalho delas, e é o único lugar
+// do sistema onde isso é intencional. O que as torna aceitáveis não é o papel
+// de quem chama: é o FORMATO DO RETORNO.
+//
+// `app_admin_metrics` e `app_admin_organizations` só sabem devolver número e
+// metadado. Não existe parâmetro que as faça devolver conteúdo de resposta,
+// porque a função não tem essa coluna no retorno. Mesmo com um bug nas rotas
+// de admin, o conteúdo dos clientes não sai por aqui.
+//
+// Para ver dado de cliente, o admin precisa impersonar — e impersonar deixa
+// rastro nos dois lados (ADR 0009).
+// -----------------------------------------------------------------------------
+
+export interface AdminMetricsRow {
+  organizations_total: bigint;
+  organizations_active: bigint;
+  organizations_trialing: bigint;
+  organizations_suspended: bigint;
+  organizations_canceled: bigint;
+  mrr_cents: bigint;
+  invoices_overdue: bigint;
+  invoices_overdue_cents: bigint;
+  responses_last_30_days: bigint;
+  canceled_last_30_days: bigint;
+}
+
+export async function loadAdminMetrics(tx: Prisma.TransactionClient): Promise<AdminMetricsRow | null> {
+  const rows = await tx.$queryRaw<AdminMetricsRow[]>`SELECT * FROM app_admin_metrics()`;
+  return rows[0] ?? null;
+}
+
+export interface AdminOrganizationRow {
+  id: string;
+  name: string;
+  slug: string;
+  plan_code: string;
+  subscription_status: string;
+  created_at: Date;
+  members_count: bigint;
+  forms_count: bigint;
+  responses_count: bigint;
+  overdue_count: bigint;
+}
+
+export async function loadAdminOrganizations(
+  tx: Prisma.TransactionClient,
+  params: { search: string; limit: number; offset: number },
+): Promise<AdminOrganizationRow[]> {
+  // Casts explícitos: o Prisma manda número como int8, e a função é declarada
+  // com `int`. Sem eles o Postgres não encontra a assinatura.
+  return tx.$queryRaw<AdminOrganizationRow[]>`
+    SELECT * FROM app_admin_organizations(${params.search}::text, ${params.limit}::int, ${params.offset}::int)
+  `;
+}
+
+export interface AdminOrganizationDetailRow extends AdminOrganizationRow {
+  trial_ends_at: Date | null;
+  owner_email: string | null;
+  storage_used_mb: bigint;
+  overdue_cents: bigint;
+}
+
+export async function loadAdminOrganization(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<AdminOrganizationDetailRow | null> {
+  const rows = await tx.$queryRaw<AdminOrganizationDetailRow[]>`
+    SELECT * FROM app_admin_organization(${organizationId}::uuid)
+  `;
+  return rows[0] ?? null;
+}

@@ -78,6 +78,10 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       aiConsentAt: organization.aiConsentAt,
       plan: { code: plan.code, name: plan.name, limits: plan.limits, features: plan.features },
       role: subject.role,
+      // O banner permanente da seção 5.5 sai daqui. Vem do servidor e não do
+      // token decodificado na tela: um banner que a tela pode escolher não
+      // desenhar não é garantia nenhuma.
+      impersonation: getAuth(request).impersonation ?? null,
     };
   });
 

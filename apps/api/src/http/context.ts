@@ -3,7 +3,7 @@ import type { Role, Subject } from '@forms/shared';
 import { isAppHost } from '../config/env.js';
 import { findMembership } from '../db/bootstrap.js';
 import { withoutTenant, withTenant, type TenantContext } from '../db/tenant.js';
-import { verifyAccessToken, InvalidTokenError } from '../auth/tokens.js';
+import { verifyAccessToken, impersonationOf, InvalidTokenError } from '../auth/tokens.js';
 import { hashIdentifier } from '../auth/hashing.js';
 import { AppError, notFound, unauthorized } from './errors.js';
 
@@ -20,6 +20,13 @@ export interface AuthContext {
   role: Role;
   membershipId: string;
   emailVerified: boolean;
+  /**
+   * Presente quando um admin da plataforma está dentro da conta do cliente.
+   *
+   * O request continua sendo do CLIENTE — mesmo tenant, mesmo papel, mesmo
+   * RLS. O que muda é que ele fica somente leitura e sai marcado no log.
+   */
+  impersonation?: { adminId: string; adminEmail: string };
 }
 
 declare module 'fastify' {
@@ -76,6 +83,8 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   const membership = await withoutTenant((tx) => findMembership(tx, claims.sub, claims.org));
   if (!membership || !membership.acceptedAt) throw unauthorized('Sessão inválida ou expirada.');
 
+  const impersonacao = impersonationOf(claims);
+
   request.auth = {
     userId: claims.sub,
     organizationId: claims.org,
@@ -83,7 +92,43 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
     role: membership.role,
     membershipId: claims.mid,
     emailVerified: claims.ev,
+    ...(impersonacao ? { impersonation: impersonacao } : {}),
   };
+
+  if (impersonacao) {
+    // Todo request sob impersonação sai marcado. É o que permite responder
+    // "quem estava dentro da conta quando isso aconteceu" sem cruzar tabelas.
+    request.log.info(
+      { adminEmail: impersonacao.adminEmail, organizationId: claims.org, url: request.url },
+      'request sob impersonação',
+    );
+
+    assertLeituraApenas(request);
+  }
+}
+
+/**
+ * Impersonação é somente leitura.
+ *
+ * A seção 5.5 não exige isto — ela exige trilha e banner. É um aperto
+ * deliberado, e o motivo é simples: o caso de uso da impersonação é suporte
+ * ("não estou vendo meu formulário"), e ver não precisa de escrita.
+ *
+ * Escrita sob impersonação é o cenário ruim: um operador nosso apagando ou
+ * alterando dado na conta de um cliente, com o registro dizendo que foi o
+ * cliente. Nem a trilha resolve isso direito, porque o estrago já aconteceu.
+ *
+ * Se um dia for preciso escrever em nome do cliente — corrigir um cadastro a
+ * pedido dele —, que seja uma rota de admin explícita, com o motivo registrado,
+ * e não um efeito colateral de estar "dentro da conta".
+ */
+function assertLeituraApenas(request: FastifyRequest): void {
+  if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return;
+
+  throw new AppError(
+    'forbidden',
+    'Durante um acesso da plataforma, a conta fica somente leitura. Nenhuma alteração é possível.',
+  );
 }
 
 /** Rotas que mexem em dado real exigem e-mail verificado. */

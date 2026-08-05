@@ -32,6 +32,9 @@ export interface AccessTokenClaims {
   /** e-mail verificado? Evita uma ida ao banco em rotas que só precisam disso. */
   ev: boolean;
   jti: string;
+  /** Presentes só em token de impersonação: id e e-mail do admin. */
+  imp?: string;
+  impe?: string;
 }
 
 export async function signAccessToken(claims: Omit<AccessTokenClaims, 'jti'>): Promise<string> {
@@ -86,6 +89,10 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenClaim
     mid: payload.mid,
     ev: payload.ev === true,
     jti: payload.jti,
+    // Carregados adiante para que o contexto do request saiba que está sob
+    // impersonação. Esquecer isto aqui apagaria o rastro de todas as rotas.
+    ...(typeof payload['imp'] === 'string' ? { imp: payload['imp'] } : {}),
+    ...(typeof payload['impe'] === 'string' ? { impe: payload['impe'] } : {}),
   };
 }
 
@@ -141,6 +148,108 @@ export async function verifyRefreshToken(token: string): Promise<RefreshTokenCla
   if (typeof payload.jti !== 'string') throw new InvalidTokenError();
 
   return { sub: payload.sub, org: payload.org, fam: payload.fam, jti: payload.jti };
+}
+
+// -----------------------------------------------------------------------------
+// Admin da plataforma
+// -----------------------------------------------------------------------------
+
+/**
+ * Token do admin.
+ *
+ * Audience própria — `<audience>:admin`. Um token de cliente apresentado numa
+ * rota de admin falha na verificação de audience antes de qualquer checagem de
+ * papel, e o contrário também. Não é defesa contra um atacante (quem tem o
+ * segredo forja o que quiser); é defesa contra NÓS, contra o dia em que alguém
+ * chamar `verifyAccessToken` numa rota de admin por descuido.
+ */
+export interface AdminTokenClaims {
+  /** platformAdminId */
+  sub: string;
+  jti: string;
+}
+
+const ADMIN_AUDIENCE = `${env.JWT_AUDIENCE}:admin`;
+
+export async function signAdminToken(adminId: string): Promise<string> {
+  return new SignJWT({})
+    .setProtectedHeader({ alg: ALG, typ: 'JWT' })
+    .setSubject(adminId)
+    .setIssuer(env.JWT_ISSUER)
+    .setAudience(ADMIN_AUDIENCE)
+    .setJti(randomUUID())
+    .setIssuedAt()
+    // Sessão curta e sem refresh: o admin enxerga todos os clientes, e a
+    // conveniência de ficar logado não paga o risco de uma sessão esquecida.
+    .setExpirationTime('30m')
+    .sign(accessSecret);
+}
+
+export async function verifyAdminToken(token: string): Promise<AdminTokenClaims> {
+  let payload: JWTPayload;
+  try {
+    const result = await jwtVerify(token, accessSecret, {
+      issuer: env.JWT_ISSUER,
+      audience: ADMIN_AUDIENCE,
+      algorithms: [ALG],
+    });
+    payload = result.payload;
+  } catch {
+    throw new InvalidTokenError();
+  }
+
+  if (!isUuid(payload.sub) || typeof payload.jti !== 'string') throw new InvalidTokenError();
+
+  return { sub: payload.sub, jti: payload.jti };
+}
+
+/**
+ * Token de impersonação.
+ *
+ * É um access token de cliente comum, com dois claims a mais: quem está
+ * impersonando e desde quando. Reaproveitar o formato é proposital — assim
+ * TODA rota de cliente enxerga a impersonação sem precisar saber que ela
+ * existe, e nenhuma delas pode esquecer de conferir.
+ */
+export interface ImpersonationClaims extends AccessTokenClaims {
+  /** id do admin da plataforma. */
+  imp: string;
+  /** e-mail do admin, para o banner dizer QUEM está olhando. */
+  impe: string;
+}
+
+export async function signImpersonationToken(params: {
+  userId: string;
+  organizationId: string;
+  role: Role;
+  membershipId: string;
+  adminId: string;
+  adminEmail: string;
+  ttlSeconds: number;
+}): Promise<string> {
+  return new SignJWT({
+    org: params.organizationId,
+    role: params.role,
+    mid: params.membershipId,
+    ev: true,
+    imp: params.adminId,
+    impe: params.adminEmail,
+  })
+    .setProtectedHeader({ alg: ALG, typ: 'JWT' })
+    .setSubject(params.userId)
+    .setIssuer(env.JWT_ISSUER)
+    .setAudience(env.JWT_AUDIENCE)
+    .setJti(randomUUID())
+    .setIssuedAt()
+    .setExpirationTime(`${params.ttlSeconds}s`)
+    .sign(accessSecret);
+}
+
+/** Dados da impersonação de um token de cliente, ou `null` se não houver. */
+export function impersonationOf(payload: JWTPayload | AccessTokenClaims): { adminId: string; adminEmail: string } | null {
+  const bruto = payload as Record<string, unknown>;
+  if (typeof bruto['imp'] !== 'string' || typeof bruto['impe'] !== 'string') return null;
+  return { adminId: bruto['imp'], adminEmail: bruto['impe'] };
 }
 
 export const REFRESH_COOKIE_NAME = 'fx_rt';

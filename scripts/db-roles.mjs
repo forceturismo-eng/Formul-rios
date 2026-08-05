@@ -161,10 +161,14 @@ async function run() {
   //
   // Cada revogação existe por um motivo, documentado na migration de RLS:
   //   audit_logs         -> append-only. Log reescrevível não é auditoria.
+  //   admin_actions      -> idem, e mais: é a trilha do que NÓS fazemos nas
+  //                         contas dos clientes. Trilha que o próprio operador
+  //                         pode editar não é trilha.
   //   plans              -> catálogo. Quem escreve é o seed, via migrator.
   //   _prisma_migrations -> o runtime não tem por que ver histórico de DDL.
   const revocations = [
     ['audit_logs', 'UPDATE, DELETE'],
+    ['admin_actions', 'UPDATE, DELETE'],
     ['plans', 'INSERT, UPDATE, DELETE'],
     ['_prisma_migrations', 'ALL'],
   ];

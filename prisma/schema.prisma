@@ -289,6 +289,66 @@ model Invitation {
 /// Refresh token rotativo com detecção de reuso.
 /// `familyId` agrupa a cadeia de rotações de uma sessão: se um token já
 /// substituído for reapresentado, a família inteira é revogada.
+/// Admin da plataforma — quem opera o SaaS, não quem o usa (seção 5.5).
+///
+/// Tabela SEPARADA de `users` de propósito. Uma coluna `isPlatformAdmin` em
+/// `users` significaria que toda consulta de login precisa acertar a checagem,
+/// para sempre. Com tabelas distintas, um bug na autenticação de cliente não
+/// pode virar acesso de admin: são credenciais diferentes, em lugares
+/// diferentes, com rotas diferentes.
+model PlatformAdmin {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String  @unique @db.VarChar(254)
+  passwordHash String  @map("password_hash")
+  name         String  @db.VarChar(160)
+
+  /// MFA é OBRIGATÓRIO. Enquanto for nulo, o admin só consegue configurá-lo —
+  /// nenhuma outra rota responde.
+  totpSecret   String?   @map("totp_secret")
+  totpEnabledAt DateTime? @map("totp_enabled_at") @db.Timestamptz(6)
+  /// Última janela TOTP consumida. Impede reapresentar o mesmo código dentro
+  /// dos 90 segundos em que ele continua válido.
+  lastTotpWindow BigInt? @map("last_totp_window")
+
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(6)
+  disabledAt  DateTime? @map("disabled_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  actions AdminAction[]
+
+  @@map("platform_admins")
+}
+
+/// Trilha de tudo que um admin da plataforma faz.
+///
+/// Separada de `audit_logs` porque ela responde a outra pergunta. `audit_logs`
+/// é do cliente: o que aconteceu na MINHA empresa. Esta é nossa: o que os
+/// nossos operadores fizeram nas empresas dos outros — inclusive nas que não
+/// existem mais, e é por isso que `organization_id` aqui não tem chave
+/// estrangeira com cascade.
+model AdminAction {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId String @map("admin_id") @db.Uuid
+
+  action String @db.VarChar(80)
+  /// A empresa afetada. Sem FK: apagar a empresa não pode apagar o registro de
+  /// que alguém mexeu nela.
+  organizationId String? @map("organization_id") @db.Uuid
+
+  metadataJson Json    @default("{}") @map("metadata_json")
+  ipHash       String? @map("ip_hash")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("admin_actions")
+}
+
 model RefreshToken {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid

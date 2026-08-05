@@ -392,15 +392,40 @@ async function seedOrganization(spec: OrgSpec): Promise<void> {
   console.log(`organização: ${spec.name} (${spec.id})`);
 }
 
+/**
+ * Admin da plataforma para desenvolvimento.
+ *
+ * SEM segredo TOTP: o primeiro login devolve o QR Code e obriga a configurar o
+ * segundo fator. Semear um segredo conhecido derrotaria o propósito do MFA e,
+ * pior, criaria o hábito de copiá-lo para produção.
+ */
+async function seedPlatformAdmin(): Promise<void> {
+  const email = 'admin@plataforma.test';
+
+  await prisma.platformAdmin.upsert({
+    where: { email },
+    update: {},
+    create: {
+      email,
+      name: 'Admin da Plataforma',
+      passwordHash: await hashPassword(PASSWORD),
+    },
+  });
+
+  console.log(`admin da plataforma: ${email}`);
+}
+
 async function main(): Promise<void> {
   await seedPlans();
   for (const spec of ORGS) await seedOrganization(spec);
+  await seedPlatformAdmin();
 
   console.log('');
   console.log('Contas de teste — senha para todas:', PASSWORD);
   for (const spec of ORGS) {
     console.log(`  ${spec.name}: ${spec.owner.email} / ${spec.editor.email} / ${spec.viewer.email}`);
   }
+  console.log('  Admin da plataforma: admin@plataforma.test (o primeiro login pede para configurar o MFA)');
 }
 
 main()
