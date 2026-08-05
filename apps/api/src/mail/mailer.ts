@@ -103,3 +103,36 @@ export function invitationEmail(params: {
     ].join('\n'),
   };
 }
+
+/**
+ * Aviso de menção num comentário.
+ *
+ * O corpo do comentário NÃO vai no e-mail. Ele fala de uma resposta de
+ * formulário — dado pessoal de terceiro — e e-mail é o canal menos controlado
+ * que existe: fica na caixa de entrada, é encaminhado, é indexado por cliente
+ * de e-mail. O aviso diz que houve menção e leva para dentro do produto, onde
+ * as permissões valem.
+ */
+export function mentionEmail(params: {
+  to: string;
+  mentionedBy: string;
+  organizationName: string;
+  formTitle: string;
+  responseId: string;
+  formId: string;
+}): Omit<OutgoingEmail, 'sentAt'> {
+  const link = `${env.branding.appUrl}/formularios/${params.formId}/respostas?resposta=${params.responseId}`;
+
+  return {
+    to: params.to,
+    subject: `${params.mentionedBy} mencionou você em ${params.formTitle}`,
+    text: [
+      `${params.mentionedBy} mencionou você num comentário em "${params.formTitle}", na ${params.organizationName}.`,
+      '',
+      'Veja o comentário por aqui:',
+      link,
+      '',
+      'O conteúdo fica no produto, onde as permissões da sua conta valem.',
+    ].join('\n'),
+  };
+}

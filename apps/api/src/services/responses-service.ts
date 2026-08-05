@@ -5,6 +5,7 @@ import { auditLogsRepository, responsesRepository } from '../db/repositories.js'
 import { decryptResponseData } from '../crypto/envelope.js';
 import { notFound } from '../http/errors.js';
 import { loadFormFor } from './forms-service.js';
+import { mentionEmail, sendMail } from '../mail/mailer.js';
 
 /**
  * Painel de recebimentos.
@@ -235,20 +236,89 @@ export async function addComment(ctx: TenantContext, subject: Subject, responseI
 
   await loadFormFor(ctx, subject, row.formId, 'response:read');
 
-  // @menções viram notificação na Fase 4; por ora ficam registradas.
-  const mentions = [...body.matchAll(/@([\w.+-]+@[\w-]+\.[\w.-]+)/g)]
-    .map((m) => m[1])
+  // @menções: só valem para quem já é da empresa.
+  //
+  // A validação contra a lista de membros não é detalhe. Sem ela, escrever
+  // `@qualquer@coisa.com` faria a plataforma mandar e-mail para um endereço
+  // arbitrário — de graça, em nome do cliente, e com o nosso domínio como
+  // remetente. É spam com a nossa reputação.
+  const citados = [...body.matchAll(/@([\w.+-]+@[\w-]+\.[\w.-]+)/g)]
+    .map((achado) => achado[1])
     .filter((email): email is string => Boolean(email));
 
-  return ctx.tx.comment.create({
+  const membrosCitados =
+    citados.length === 0
+      ? []
+      : await ctx.tx.membership.findMany({
+          where: {
+            organizationId: ctx.organizationId,
+            acceptedAt: { not: null },
+            user: { email: { in: [...new Set(citados.map((email) => email.toLowerCase()))] } },
+          },
+          include: { user: { select: { id: true, email: true, name: true } } },
+        });
+
+  const comentario = await ctx.tx.comment.create({
     data: {
       organizationId: ctx.organizationId,
       responseId,
       userId: subject.userId,
       body: body.trim(),
-      mentionsJson: mentions,
+      // Guarda só quem existe. Um e-mail de fora citado no texto continua no
+      // corpo do comentário, mas não vira destinatário.
+      mentionsJson: membrosCitados.map((membro) => membro.user.email),
     },
   });
+
+  await notificarMencionados(ctx, subject, {
+    comentario,
+    formId: row.formId,
+    mencionados: membrosCitados.map((membro) => membro.user),
+  });
+
+  return comentario;
+}
+
+/**
+ * Avisa quem foi mencionado.
+ *
+ * Fora da transação do comentário seria o ideal, mas o mailer atual é em
+ * memória e a falha dele não deve derrubar o comentário — daí o `catch`. Com um
+ * SMTP de verdade isto vira job de fila, como o resto.
+ */
+async function notificarMencionados(
+  ctx: TenantContext,
+  subject: Subject,
+  params: {
+    comentario: { id: string; responseId: string };
+    formId: string;
+    mencionados: Array<{ id: string; email: string; name: string }>;
+  },
+): Promise<void> {
+  // Quem escreveu não é notificado do próprio comentário.
+  const destinatarios = params.mencionados.filter((pessoa) => pessoa.id !== subject.userId);
+  if (destinatarios.length === 0) return;
+
+  const [autor, formulario, organizacao] = await Promise.all([
+    ctx.tx.user.findUnique({ where: { id: subject.userId }, select: { name: true } }),
+    ctx.tx.form.findFirst({ where: { id: params.formId }, select: { title: true } }),
+    ctx.tx.organization.findFirst({ where: { id: ctx.organizationId }, select: { name: true } }),
+  ]);
+
+  await Promise.all(
+    destinatarios.map((pessoa) =>
+      sendMail(
+        mentionEmail({
+          to: pessoa.email,
+          mentionedBy: autor?.name ?? 'Alguém',
+          organizationName: organizacao?.name ?? '',
+          formTitle: formulario?.title ?? 'um formulário',
+          formId: params.formId,
+          responseId: params.comentario.responseId,
+        }),
+      ).catch(() => undefined),
+    ),
+  );
 }
 
 export async function listComments(ctx: TenantContext, subject: Subject, responseId: string) {

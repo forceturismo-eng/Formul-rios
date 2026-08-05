@@ -9,9 +9,8 @@ para múltiplas empresas, com foco no mercado brasileiro.
 > pública por chave, análises com IA com redação de PII, e o admin da
 > plataforma com MFA e impersonação auditada.
 >
-> **Pendências conhecidas:** colaboração por tela (convites, comentários,
-> feed), NFS-e e dunning por e-mail — os dois últimos dependem de credenciais
-> externas. Ver [Roteiro](#roteiro).
+> **Pendências conhecidas:** NFS-e e dunning por e-mail — os dois dependem de
+> credenciais externas. Ver [Roteiro](#roteiro).
 
 ---
 
@@ -438,12 +437,13 @@ em silêncio, e documentação errada é pior do que ausente.
       página de preços, painel de cobrança e telas de Pix e boleto.
       **Falta:** emissão de NFS-e e o disparo de dunning por e-mail — os dois
       dependem de credenciais externas.
-- [~] **Fase 4 — Domínios e diferenciais.** Domínios próprios com verificação
+- [x] **Fase 4 — Domínios e diferenciais.** Domínios próprios com verificação
       de DNS e Caddy + ACME sob demanda, white-label com CSS sanitizado por
       lista de permissão, webhooks de saída assinados, API pública por chave
       com escopos, análises com IA em fila com redação obrigatória de PII.
-      **Falta:** colaboração por tela — convites, comentários e feed de
-      atividades (o backend de convites e comentários já existe).
+      Colaboração por tela: convites com papel, troca de papel com trava de
+      escalada, comentários com @menção validada contra a equipe, e feed de
+      atividades a partir do audit log.
 - [~] **Fase 5 — Fechamento.** Admin da plataforma com MFA obrigatório,
       métricas por agregado e impersonação somente leitura auditada dos dois
       lados, OpenAPI derivado do código, guia de DNS por provedor brasileiro

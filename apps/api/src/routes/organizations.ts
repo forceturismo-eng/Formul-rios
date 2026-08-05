@@ -4,6 +4,7 @@ import {
   assertCan,
   can,
   canAssignRole,
+  describeActivity,
   CSS_TAMANHO_MAXIMO,
   downgradeBloqueado,
   findPlan,
@@ -17,15 +18,24 @@ import { conflict, forbidden, notFound } from '../http/errors.js';
 import {
   auditLogsRepository,
   invitationsRepository,
-  membershipsRepository,
   organizationsRepository,
 } from '../db/repositories.js';
 import { generateOpaqueToken, hashToken } from '../auth/hashing.js';
 import { invitationEmail, sendMail } from '../mail/mailer.js';
 import { assertCanAddMember, checkDowngrade, usageSummary } from '../services/usage-service.js';
 import { loadBranding, updateBranding } from '../services/branding-service.js';
+import {
+  changeMemberRole,
+  listInvitations,
+  listMembers,
+  parseRole,
+  removeMember,
+  revokeInvitation,
+} from '../services/members-service.js';
 
 const INVITATION_TTL_DAYS = 7;
+
+const uuidParam = z.object({ id: z.string().uuid() });
 
 const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -138,34 +148,95 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/members', async (request) => {
     const subject = subjectOf(request);
+    return { members: await withRequestTenant(request, (ctx) => listMembers(ctx, subject)) };
+  });
+
+  /**
+   * Troca o papel de alguém.
+   *
+   * Duas travas, e as duas são de escalada de privilégio: ninguém dá um papel
+   * acima do próprio, e ninguém mexe em quem está acima. A terceira é de
+   * operação: o último dono não pode ser rebaixado, senão a empresa fica sem
+   * quem a administre.
+   */
+  app.patch('/members/:id', async (request) => {
+    const subject = subjectOf(request);
+    const { id } = uuidParam.parse(request.params);
+    const { role } = z.object({ role: z.string() }).parse(request.body);
+
+    const atualizado = await withRequestTenant(request, (ctx) =>
+      changeMemberRole(ctx, subject, id, parseRole(role)),
+    );
+
+    return { id: atualizado.id, role: atualizado.role };
+  });
+
+  /** Remove alguém — ou sai, quando é a própria pessoa. */
+  app.delete('/members/:id', async (request) => {
+    const subject = subjectOf(request);
+    const { id } = uuidParam.parse(request.params);
+
+    return withRequestTenant(request, (ctx) => removeMember(ctx, subject, id));
+  });
+
+  app.delete('/invitations/:id', async (request) => {
+    const subject = subjectOf(request);
+    const { id } = uuidParam.parse(request.params);
+
+    return withRequestTenant(request, (ctx) => revokeInvitation(ctx, subject, id));
+  });
+
+  /**
+   * Feed de atividades.
+   *
+   * O mesmo audit log da rota `/audit-logs`, traduzido para linguagem de gente
+   * e sem o ruído que ninguém lê (login, refresh, troca de empresa). As
+   * entradas que a plataforma gravou vêm marcadas: o cliente tem direito de ver
+   * o que fizemos na conta dele, no mesmo lugar em que vê o que a equipe fez.
+   */
+  app.get('/activity', async (request) => {
+    const subject = subjectOf(request);
     assertCan(subject, 'member:read');
 
-    const members = await withRequestTenant(request, (ctx) => membershipsRepository.list(ctx));
-    return {
-      members: members.map((m) => ({
-        id: m.id,
-        role: m.role,
-        acceptedAt: m.acceptedAt,
-        createdAt: m.createdAt,
-        user: m.user,
-      })),
-    };
+    const query = z
+      .object({ limit: z.coerce.number().int().min(1).max(200).default(60) })
+      .parse(request.query);
+
+    const entradas = await withRequestTenant(request, async (ctx) => {
+      // Busca mais do que o pedido porque parte será descartada na tradução.
+      const logs = await auditLogsRepository.list(ctx, query.limit * 3);
+
+      const autores = await ctx.tx.user.findMany({
+        where: { id: { in: [...new Set(logs.map((l) => l.actorUserId).filter((id): id is string => id !== null))] } },
+        select: { id: true, name: true },
+      });
+      const nomePorId = new Map(autores.map((autor) => [autor.id, autor.name]));
+
+      return logs
+        .map((log) => {
+          const descrito = describeActivity(log.action, (log.metadataJson ?? {}) as Record<string, unknown>);
+          if (!descrito) return null;
+
+          return {
+            id: log.id,
+            texto: descrito.texto,
+            categoria: descrito.categoria,
+            daPlataforma: descrito.daPlataforma === true,
+            // Sem autor quando a ação foi da plataforma ou de um processo.
+            autor: log.actorUserId ? (nomePorId.get(log.actorUserId) ?? 'Alguém') : null,
+            createdAt: log.createdAt,
+          };
+        })
+        .filter((entrada): entrada is NonNullable<typeof entrada> => entrada !== null)
+        .slice(0, query.limit);
+    });
+
+    return { activity: entradas };
   });
 
   app.get('/invitations', async (request) => {
     const subject = subjectOf(request);
-    assertCan(subject, 'member:read');
-
-    const invitations = await withRequestTenant(request, (ctx) => invitationsRepository.list(ctx));
-    return {
-      invitations: invitations.map((i) => ({
-        id: i.id,
-        email: i.email,
-        role: i.role,
-        expiresAt: i.expiresAt,
-        createdAt: i.createdAt,
-      })),
-    };
+    return { invitations: await withRequestTenant(request, (ctx) => listInvitations(ctx, subject)) };
   });
 
   app.post('/invitations', { preHandler: requireVerifiedEmail }, async (request, reply) => {

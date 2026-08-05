@@ -12,4 +12,5 @@ export * from './schemas/form.js';
 export * from './form-runtime.js';
 export * from './quotas.js';
 export * from './copy/billing.js';
+export * from './copy/atividades.js';
 export * from './domains.js';

@@ -95,11 +95,23 @@ Use `PREFIXO_DE_TESTE` de `tests/helpers/limpeza.ts` nos títulos.
 **O seed cifra de verdade.** Já gravou `randomBytes` fingindo ser conteúdo
 cifrado por três fases sem ninguém notar.
 
+**@menção só vale para quem é da empresa.** Sem validar contra a lista de
+membros, `@qualquer@coisa.com` faria a plataforma mandar e-mail para endereço
+arbitrário, em nome do cliente e com a nossa reputação de remetente.
+
+**O aviso de menção não leva o comentário.** Ele fala de uma resposta de
+formulário; e-mail é o canal menos controlado que existe.
+
+**Gestão de equipe é onde a escalada de privilégio mora.** Três travas:
+ninguém dá papel acima do próprio, ninguém mexe em quem está acima, e o último
+`owner` não pode ser rebaixado nem sair.
+
 ---
 
 ## Estado
 
-Fases 1 a 5 concluídas. 748 testes de suíte + 3 e2e; lint e typecheck limpos.
+Fases 1 a 5 concluídas, colaboração inclusa. 771 testes de suíte + 3 e2e;
+lint e typecheck limpos.
 
 Branch de trabalho: `claude/criar-sistema-g1np9i`.
 
@@ -107,7 +119,6 @@ Branch de trabalho: `claude/criar-sistema-g1np9i`.
 
 | O quê | Observação |
 |---|---|
-| Colaboração por tela | Convites, comentários e feed de atividades. O backend de convites e comentários já existe; falta a interface |
 | NFS-e | Depende de credencial de provedor fiscal |
 | Dunning por e-mail | Depende de SMTP/Resend real; o mailer atual é em memória com outbox |
 | Mailer real | Idem |

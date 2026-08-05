@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { allFields, type FormDefinition } from '@forms/shared';
+import { allFields, tempoRelativo, type FormDefinition } from '@forms/shared';
 import { ApiError, api } from '../lib/api.js';
 import { Link } from '../lib/router.js';
 import { LayoutPainel } from '../components/layout.js';
@@ -287,6 +287,107 @@ function DetalheDaResposta({
           </div>
         ))}
       </dl>
+
+      <Comentarios responseId={resposta.id} />
     </div>
+  );
+}
+
+interface Comentario {
+  id: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+  user: { id: string; name: string };
+}
+
+/**
+ * Comentários de uma resposta.
+ *
+ * A menção é por e-mail (`@pessoa@empresa.com.br`) e só vale para quem já é da
+ * empresa — a API descarta o resto. O seletor existe para ninguém precisar
+ * decorar endereço, mas digitar à mão funciona igual.
+ *
+ * O aviso de menção sai por e-mail SEM o conteúdo do comentário: ele fala de
+ * uma resposta de formulário, que é dado pessoal de terceiro, e a caixa de
+ * entrada é o canal menos controlado que existe.
+ */
+function Comentarios({ responseId }: { responseId: string }) {
+  const cliente = useQueryClient();
+  const [texto, setTexto] = useState('');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['comentarios', responseId],
+    queryFn: () => api<{ comments: Comentario[] }>(`/v1/responses/${responseId}/comments`),
+  });
+
+  const { data: equipe } = useQuery({
+    queryKey: ['membros'],
+    queryFn: () => api<{ members: Array<{ user: { name: string; email: string } }> }>('/v1/members'),
+  });
+
+  const comentar = useMutation({
+    mutationFn: () => api(`/v1/responses/${responseId}/comments`, { method: 'POST', body: { body: texto } }),
+    onSuccess: () => {
+      setTexto('');
+      void cliente.invalidateQueries({ queryKey: ['comentarios', responseId] });
+    },
+  });
+
+  return (
+    <section className="mt-8 border-t border-slate-200 pt-6">
+      <h3 className="font-medium text-slate-900">Comentários</h3>
+      <p className="mt-0.5 text-sm text-slate-500">
+        Visíveis só para a equipe. Quem respondeu o formulário nunca vê isto.
+      </p>
+
+      {isLoading && <Spinner label="Carregando comentários" />}
+
+      {data && data.comments.length > 0 && (
+        <ul className="mt-4 space-y-3">
+          {data.comments.map((comentario) => (
+            <li key={comentario.id} className="rounded-lg bg-slate-50 px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium text-slate-900">{comentario.user.name}</span>
+                <span className="text-xs text-slate-500">{tempoRelativo(new Date(comentario.createdAt))}</span>
+              </div>
+              <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{comentario.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form
+        className="mt-4 space-y-2"
+        onSubmit={(evento) => {
+          evento.preventDefault();
+          if (texto.trim()) comentar.mutate();
+        }}
+      >
+        <textarea
+          className="h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          placeholder="Escreva um comentário. Use @ para chamar alguém da equipe."
+          value={texto}
+          onChange={(evento) => setTexto(evento.target.value)}
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {(equipe?.members ?? []).slice(0, 6).map((membro) => (
+            <button
+              key={membro.user.email}
+              type="button"
+              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:border-slate-400"
+              onClick={() => setTexto((atual) => `${atual}${atual && !atual.endsWith(' ') ? ' ' : ''}@${membro.user.email} `)}
+            >
+              @{membro.user.name.split(' ')[0]}
+            </button>
+          ))}
+
+          <button type="submit" className="botao-primario ml-auto" disabled={comentar.isPending}>
+            {comentar.isPending ? 'Enviando…' : 'Comentar'}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
