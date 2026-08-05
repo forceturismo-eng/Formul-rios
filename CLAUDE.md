@@ -106,11 +106,17 @@ formulário; e-mail é o canal menos controlado que existe.
 ninguém dá papel acima do próprio, ninguém mexe em quem está acima, e o último
 `owner` não pode ser rebaixado nem sair.
 
+**O rate limit vive no Redis, com prefixo por processo em teste.** Ele passou a
+ser compartilhado e a sobreviver 15 minutos; sem o prefixo, uma execução da
+suíte estouraria o limite da seguinte. E `enableOfflineQueue` fica LIGADO: com
+ele desligado, os comandos emitidos antes de a conexão ficar pronta falham e o
+`skipOnError` os engole em silêncio.
+
 ---
 
 ## Estado
 
-Fases 1 a 5 concluídas, colaboração inclusa. 771 testes de suíte + 3 e2e;
+Fases 1 a 5 concluídas, colaboração inclusa. 776 testes de suíte + 3 e2e;
 lint e typecheck limpos.
 
 Branch de trabalho: `claude/criar-sistema-g1np9i`.
@@ -123,7 +129,6 @@ Branch de trabalho: `claude/criar-sistema-g1np9i`.
 | Dunning por e-mail | Depende de SMTP/Resend real; o mailer atual é em memória com outbox |
 | Mailer real | Idem |
 | Driver S3 | Existe a interface `StorageProvider`; o driver ativo grava em disco |
-| Rate limit em Redis | O atual é em memória — multiplica o limite pelo número de processos |
 | MFA para usuários finais | Existe só para o admin da plataforma |
 | Builder multi-página e editor de lógica | O schema suporta; a interface ainda não |
 | Checkout com cartão | Pix e boleto funcionam |

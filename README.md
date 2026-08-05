@@ -93,6 +93,11 @@ independentes. Detalhes em [`docs/adr/0001`](docs/adr/0001-isolamento-multi-tena
 **1. Modelagem** — toda tabela de negócio tem `organization_id UUID NOT NULL`.
 IDs são UUID v4, nunca sequenciais.
 
+**0. Rate limit compartilhado** — o contador vive no Redis quando há
+`REDIS_URL`. Em memória ele é por processo, e um limite de "5 tentativas de
+login por 15 minutos" vira 20 com quatro instâncias — obedecendo direitinho o
+contador de cada uma.
+
 **2. Row Level Security** — `ENABLE` + `FORCE`, com `USING` e `WITH CHECK`, em
 todas elas. Query sem contexto de tenant devolve **zero linhas**, não a base
 inteira. A aplicação conecta com um papel **sem** `BYPASSRLS`, e o papel de

@@ -6,6 +6,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
+import { rateLimitOptions } from './http/rate-limit.js';
 import { registerAiProvider } from './ai/index.js';
 import { adminAuthRoutes, adminRoutes } from './routes/admin.js';
 import { aiRoutes } from './routes/ai.js';
@@ -110,14 +111,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
-  await app.register(rateLimit, {
-    global: true,
-    max: 300,
-    timeWindow: '1 minute',
-    // Em produção com mais de uma instância, trocar por Redis: contador em
-    // memória multiplica o limite pelo número de processos.
-    keyGenerator: (request) => request.ip,
-  });
+  // O contador vai para o Redis quando há `REDIS_URL`. Em memória ele é por
+  // processo, e um limite de 5 tentativas vira 20 com quatro instâncias.
+  const { distribuido, ...limite } = rateLimitOptions();
+  await app.register(rateLimit, limite);
+
+  if (!distribuido && env.isProduction) {
+    app.log.warn(
+      'rate limit em memória: sem REDIS_URL, o limite é multiplicado pelo número de processos',
+    );
+  }
 
   registerErrorHandler(app);
 
