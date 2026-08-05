@@ -166,6 +166,15 @@ model Organization {
   primaryColor String?  @map("primary_color") @db.VarChar(9)
   faviconUrl   String?  @map("favicon_url")
 
+  // White-label (seção 8.5). Guardar não é o mesmo que aplicar: o que o
+  // renderizador público serve depende do plano, decidido em effectiveBranding.
+  metaTitle       String? @map("meta_title") @db.VarChar(120)
+  metaDescription String? @map("meta_description") @db.VarChar(200)
+  ogImageUrl      String? @map("og_image_url")
+  /// Cru, como o cliente escreveu. Sanitizado a cada renderização, nunca aqui:
+  /// se a lista de permissão mudar, o que já está gravado passa pela nova.
+  customCss       String? @map("custom_css")
+
   planCode           String             @default("free") @map("plan_code") @db.VarChar(40)
   subscriptionStatus SubscriptionStatus @default(trialing) @map("subscription_status")
   trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(6)

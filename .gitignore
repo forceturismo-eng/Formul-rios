@@ -22,3 +22,8 @@ infra/data/
 .pgdata/
 playwright-report/
 test-results/
+
+# Bucket local do LocalStorageProvider — anexos e exportações de desenvolvimento.
+# Em produção isto é um bucket privado; aqui é conteúdo de cliente em disco, e
+# ele não tem por que existir no repositório.
+.storage/

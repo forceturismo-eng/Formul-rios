@@ -4,11 +4,13 @@ import {
   assertCan,
   can,
   canAssignRole,
+  CSS_TAMANHO_MAXIMO,
   downgradeBloqueado,
   findPlan,
   getPlan,
   inviteMemberSchema,
   PLANS,
+  sanitizeCustomCss,
 } from '@forms/shared';
 import { getAuth, requireAuth, requireVerifiedEmail, subjectOf, withRequestTenant } from '../http/context.js';
 import { conflict, forbidden, notFound } from '../http/errors.js';
@@ -21,6 +23,7 @@ import {
 import { generateOpaqueToken, hashToken } from '../auth/hashing.js';
 import { invitationEmail, sendMail } from '../mail/mailer.js';
 import { assertCanAddMember, checkDowngrade, usageSummary } from '../services/usage-service.js';
+import { loadBranding, updateBranding } from '../services/branding-service.js';
 
 const INVITATION_TTL_DAYS = 7;
 
@@ -32,6 +35,22 @@ const updateOrganizationSchema = z.object({
     .optional(),
   logoUrl: z.string().url().max(2048).optional(),
   faviconUrl: z.string().url().max(2048).optional(),
+});
+
+/**
+ * White-label.
+ *
+ * `nullable` em tudo de propósito: limpar o logo é mandar `null`, e sem isso
+ * não haveria como voltar ao padrão depois de definir um.
+ */
+const brandingSchema = z.object({
+  logoUrl: z.string().max(2048).nullable().optional(),
+  faviconUrl: z.string().max(2048).nullable().optional(),
+  ogImageUrl: z.string().max(2048).nullable().optional(),
+  primaryColor: z.string().max(9).nullable().optional(),
+  metaTitle: z.string().max(120).nullable().optional(),
+  metaDescription: z.string().max(200).nullable().optional(),
+  customCss: z.string().max(CSS_TAMANHO_MAXIMO).nullable().optional(),
 });
 
 export async function organizationRoutes(app: FastifyInstance): Promise<void> {
@@ -79,6 +98,38 @@ export async function organizationRoutes(app: FastifyInstance): Promise<void> {
       });
       return { id: updated.id, name: updated.name, slug: updated.slug, primaryColor: updated.primaryColor };
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // White-label
+  // ---------------------------------------------------------------------------
+
+  app.get('/branding', async (request) => {
+    assertCan(subjectOf(request), 'org:read');
+    return withRequestTenant(request, (ctx) => loadBranding(ctx));
+  });
+
+  app.patch('/branding', async (request) => {
+    const subject = subjectOf(request);
+    assertCan(subject, 'org:update');
+
+    const entrada = brandingSchema.parse(request.body);
+    return withRequestTenant(request, (ctx) => updateBranding(ctx, subject, entrada));
+  });
+
+  /**
+   * Prévia do CSS: mostra o que sobra da folha ANTES de gravar.
+   *
+   * Sem isso, o cliente escreve uma regra, salva, e descobre que ela sumiu sem
+   * saber por quê. A lista de removidos é a explicação.
+   */
+  app.post('/branding/preview-css', async (request) => {
+    assertCan(subjectOf(request), 'org:update');
+
+    const { css } = z.object({ css: z.string().max(50_000) }).parse(request.body);
+    const resultado = sanitizeCustomCss(css);
+
+    return { css: resultado.css, removidos: resultado.removidos };
   });
 
   app.get('/members', async (request) => {

@@ -1,4 +1,12 @@
-import { formSchema, themeSchema, validateResponse, type FormDefinition, type ResponseValues } from '@forms/shared';
+import {
+  buildMetaTags,
+  formSchema,
+  themeSchema,
+  validateResponse,
+  type FormDefinition,
+  type MetaTag,
+  type ResponseValues,
+} from '@forms/shared';
 import type { Prisma } from '@prisma/client';
 import { withTenant, withoutTenant, type TenantContext } from '../db/tenant.js';
 import { resolvePublicFormOrg } from '../db/bootstrap.js';
@@ -8,6 +16,8 @@ import { verifyPassword } from '../auth/hashing.js';
 import { AppError, notFound, validationError } from '../http/errors.js';
 import { evaluateResponseQuota, incrementResponseCount, loadUsage } from './usage-service.js';
 import { dispatchWebhooks } from './webhooks-service.js';
+import { publicBrandingOf } from './branding-service.js';
+import { env } from '../config/env.js';
 
 /**
  * O lado público: renderizar e receber.
@@ -45,10 +55,15 @@ export interface PublicFormView {
   organization: {
     name: string;
     logoUrl: string | null;
+    faviconUrl: string | null;
     primaryColor: string | null;
   };
   /** `false` nos planos Pro+ — o formulário sai sem a nossa marca. */
   showBranding: boolean;
+  /** Já sanitizado e já filtrado pelo plano. Vai direto para uma `<style>`. */
+  customCss: string;
+  /** Título da aba e prévia do link, prontos para aplicar. */
+  meta: { title: string; tags: MetaTag[] };
 }
 
 /** Estados em que a organização não recebe respostas (seção 11). */
@@ -57,7 +72,20 @@ const STATUS_QUE_PAUSAM = new Set(['suspended', 'canceled']);
 interface ResolvedForm {
   ctx: TenantContext;
   form: Prisma.FormGetPayload<Record<string, never>>;
-  organization: { name: string; logoUrl: string | null; primaryColor: string | null; planCode: string; subscriptionStatus: string };
+  organization: OrganizacaoPublica;
+}
+
+interface OrganizacaoPublica {
+  name: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
+  ogImageUrl: string | null;
+  primaryColor: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  customCss: string | null;
+  planCode: string;
+  subscriptionStatus: string;
 }
 
 /**
@@ -79,7 +107,18 @@ async function withPublicForm<T>(slug: string, fn: (resolved: ResolvedForm) => P
 
     const organization = await ctx.tx.organization.findFirst({
       where: { id: ctx.organizationId },
-      select: { name: true, logoUrl: true, primaryColor: true, planCode: true, subscriptionStatus: true },
+      select: {
+        name: true,
+        logoUrl: true,
+        faviconUrl: true,
+        ogImageUrl: true,
+        primaryColor: true,
+        metaTitle: true,
+        metaDescription: true,
+        customCss: true,
+        planCode: true,
+        subscriptionStatus: true,
+      },
     });
     if (!organization) throw notFound('Este formulário não está disponível.');
 
@@ -116,6 +155,8 @@ export async function getPublicForm(slug: string): Promise<PublicFormView> {
     const definition = formSchema.parse(form.schemaJson);
     const vazio: FormDefinition = { ...definition, pages: [], logic: [] };
 
+    const branding = publicBrandingOf(organization);
+
     return {
       id: form.id,
       title: form.title,
@@ -127,16 +168,25 @@ export async function getPublicForm(slug: string): Promise<PublicFormView> {
       state,
       organization: {
         name: organization.name,
-        logoUrl: organization.logoUrl,
-        primaryColor: organization.primaryColor,
+        logoUrl: branding.logoUrl,
+        faviconUrl: branding.faviconUrl,
+        primaryColor: branding.primaryColor,
       },
-      showBranding: !planRemovesBranding(organization.planCode),
+      showBranding: branding.showBranding,
+      customCss: branding.customCss,
+      meta: buildMetaTags({
+        formTitle: form.title,
+        formDescription: form.description,
+        organizationName: organization.name,
+        metaTitle: branding.metaTitle,
+        metaDescription: branding.metaDescription,
+        ogImageUrl: branding.ogImageUrl,
+        faviconUrl: branding.faviconUrl,
+        showBranding: branding.showBranding,
+        productName: env.branding.productName,
+      }),
     };
   });
-}
-
-function planRemovesBranding(planCode: string): boolean {
-  return planCode === 'pro' || planCode === 'business' || planCode === 'enterprise';
 }
 
 export interface SubmitParams {

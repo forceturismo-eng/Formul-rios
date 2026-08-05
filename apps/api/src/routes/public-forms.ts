@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requestIpHash, requestUserAgentHash } from '../http/context.js';
 import { getPublicForm, submitPublicForm } from '../services/public-form-service.js';
+import { aceitaHtml, canonicalUrlDe, injectMeta, loadSpaShell } from '../http/spa-shell.js';
 
 /**
  * Rotas públicas do formulário.
@@ -49,6 +50,29 @@ export async function publicFormRoutes(app: FastifyInstance): Promise<void> {
       // `frame-ancestors` liberado porque o embed em iframe é recurso do
       // produto (seção 5.1). Por formulário, isso vira configurável na Fase 4.
       void reply.header('Content-Security-Policy', "frame-ancestors *");
+      // A prévia do link muda com o branding da organização, e um cache
+      // compartilhado que ignorasse o Accept serviria HTML a quem pediu JSON.
+      void reply.header('Vary', 'Accept');
+
+      // Navegador e robô de prévia recebem HTML com as meta tags já no head.
+      // Robô de WhatsApp não roda script: meta tag preenchida depois não existe
+      // para ele.
+      if (aceitaHtml(request.headers.accept)) {
+        const shell = await loadSpaShell();
+        if (shell) {
+          void reply.type('text/html; charset=utf-8');
+          return injectMeta(shell, {
+            title: form.meta.title,
+            // `og:url` só é montada aqui: ela depende do host do request, e o
+            // mesmo formulário é servido no domínio do cliente e no nosso.
+            tags: [
+              ...form.meta.tags,
+              { attr: 'property', key: 'og:url', content: canonicalUrlDe(request.headers.host, slug) },
+            ],
+            faviconUrl: form.organization.faviconUrl,
+          });
+        }
+      }
 
       return form;
     },
