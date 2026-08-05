@@ -69,6 +69,9 @@ afterEach(async () => {
       where: { id: ORG_A.id },
       data: {
         planCode: planoOriginal,
+        // A cor entra aqui também: sem ela, a empresa do seed ficava com a cor
+        // do último caso que rodou.
+        primaryColor: '#2563eb',
         customCss: null,
         logoUrl: null,
         faviconUrl: null,
