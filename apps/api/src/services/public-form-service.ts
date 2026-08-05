@@ -60,6 +60,14 @@ export interface PublicFormView {
   };
   /** `false` nos planos Pro+ — o formulário sai sem a nossa marca. */
   showBranding: boolean;
+  /**
+   * Nome do produto para o rodapé.
+   *
+   * Vem do servidor porque [PRODUTO] é configurável por `.env`, e a tela não
+   * tem acesso a esse valor. Vazio quando `showBranding` é falso — assim não
+   * existe nem no JSON que o respondente pode abrir no inspetor.
+   */
+  productName: string;
   /** Já sanitizado e já filtrado pelo plano. Vai direto para uma `<style>`. */
   customCss: string;
   /** Título da aba e prévia do link, prontos para aplicar. */
@@ -173,6 +181,7 @@ export async function getPublicForm(slug: string): Promise<PublicFormView> {
         primaryColor: branding.primaryColor,
       },
       showBranding: branding.showBranding,
+      productName: branding.showBranding ? env.branding.productName : '',
       customCss: branding.customCss,
       meta: buildMetaTags({
         formTitle: form.title,

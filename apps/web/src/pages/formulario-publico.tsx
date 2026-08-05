@@ -35,8 +35,13 @@ interface FormularioPublico {
   definition: FormDefinition;
   theme: FormTheme;
   state: 'open' | 'closed_by_date' | 'closed_by_limit' | 'requires_password' | 'requires_login' | 'paused';
-  organization: { name: string; logoUrl: string | null; primaryColor: string | null };
+  organization: { name: string; logoUrl: string | null; faviconUrl: string | null; primaryColor: string | null };
   showBranding: boolean;
+  /** Vazio quando o white-label está ativo. */
+  productName: string;
+  /** Já sanitizado no servidor e já filtrado pelo plano. */
+  customCss: string;
+  meta: { title: string; tags: Array<{ attr: 'name' | 'property'; key: string; content: string }> };
 }
 
 /**
@@ -71,7 +76,16 @@ export function PaginaFormularioPublico({ slug }: { slug: string }) {
     if (formulario?.organization.primaryColor) {
       document.documentElement.style.setProperty('--cor-marca', formulario.organization.primaryColor);
     }
-    if (formulario) document.title = formulario.title;
+  }, [formulario]);
+
+  // Título, meta tags e favicon.
+  //
+  // A API já serve isso no <head> do HTML — é o que o robô de prévia do
+  // WhatsApp lê, e ele não roda script. Aqui é para a navegação dentro da SPA,
+  // em que nenhum documento novo chega do servidor.
+  useEffect(() => {
+    if (!formulario) return;
+    aplicarMeta(formulario);
   }, [formulario]);
 
   if (carregando) return <Spinner label="Carregando formulário" />;
@@ -86,7 +100,7 @@ export function PaginaFormularioPublico({ slug }: { slug: string }) {
 
   if (formulario.state !== 'open' && formulario.state !== 'requires_password') {
     return (
-      <Moldura organizacao={formulario.organization}>
+      <Moldura organizacao={formulario.organization} semMarca={!formulario.showBranding} css={formulario.customCss} produto={formulario.productName}>
         <h1 className="text-xl font-semibold text-slate-900">{formulario.title}</h1>
         <p className="mt-3 text-slate-600">{MENSAGEM_FECHADO[formulario.state]}</p>
       </Moldura>
@@ -96,17 +110,74 @@ export function PaginaFormularioPublico({ slug }: { slug: string }) {
   return <Formulario formulario={formulario} />;
 }
 
+/**
+ * Aplica título, meta tags e favicon ao documento.
+ *
+ * Os valores vêm prontos do servidor — quem decide o conteúdo é
+ * `buildMetaTags`, no pacote compartilhado. Aqui é só transporte, e é por isso
+ * que nada é montado por concatenação: `setAttribute` não interpreta HTML, o
+ * que torna impossível uma injeção por um nome de empresa mal-intencionado.
+ */
+function aplicarMeta(formulario: FormularioPublico): void {
+  document.title = formulario.meta.title;
+
+  for (const tag of formulario.meta.tags) {
+    const seletor = `meta[${tag.attr}="${CSS.escape(tag.key)}"]`;
+    let elemento = document.head.querySelector<HTMLMetaElement>(seletor);
+
+    if (!elemento) {
+      elemento = document.createElement('meta');
+      elemento.setAttribute(tag.attr, tag.key);
+      document.head.appendChild(elemento);
+    }
+
+    elemento.setAttribute('content', tag.content);
+  }
+
+  if (formulario.organization.faviconUrl) {
+    let icone = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!icone) {
+      icone = document.createElement('link');
+      icone.rel = 'icon';
+      document.head.appendChild(icone);
+    }
+    icone.href = formulario.organization.faviconUrl;
+  }
+}
+
+/**
+ * CSS do cliente.
+ *
+ * `dangerouslySetInnerHTML` numa `<style>` é o único jeito de injetar uma folha
+ * inteira, e o nome do atributo é honesto: seria perigoso mesmo. O que torna
+ * isto seguro é o servidor — `sanitizeCustomCss` garante que a string não
+ * contém `<`, então ela não pode fechar a tag. A tela NÃO sanitiza nada: uma
+ * segunda implementação da mesma regra seria uma segunda chance de errar.
+ */
+function CssDoCliente({ css }: { css: string }) {
+  if (!css) return null;
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+}
+
 function Moldura({
   children,
   organizacao,
   semMarca,
+  css,
+  produto,
 }: {
   children: React.ReactNode;
   organizacao?: FormularioPublico['organization'];
   semMarca?: boolean;
+  css?: string;
+  produto?: string;
 }) {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-10">
+      {/* Depois da nossa folha, para vencer sem precisar de `!important` — que
+          o sanitizador remove justamente por isso. */}
+      <CssDoCliente css={css ?? ''} />
+
       <div className="mx-auto max-w-2xl">
         {organizacao && (
           <div className="mb-6 flex items-center gap-3">
@@ -120,9 +191,10 @@ function Moldura({
 
         <div className="cartao">{children}</div>
 
-        {/* "Powered by" some nos planos Pro+ (seção 8.5). */}
-        {!semMarca && (
-          <p className="mt-6 text-center text-xs text-slate-400">Formulário criado com Formulários</p>
+        {/* "Powered by" some nos planos Pro+ (seção 8.5). O nome do produto vem
+            do servidor: [PRODUTO] é configurável por `.env`. */}
+        {!semMarca && produto && (
+          <p className="mt-6 text-center text-xs text-slate-400">Formulário criado com {produto}</p>
         )}
       </div>
     </div>
@@ -231,7 +303,7 @@ function Formulario({ formulario }: { formulario: FormularioPublico }) {
 
   if (enviado) {
     return (
-      <Moldura organizacao={formulario.organization} semMarca={!formulario.showBranding}>
+      <Moldura organizacao={formulario.organization} semMarca={!formulario.showBranding} css={formulario.customCss} produto={formulario.productName}>
         <div className="py-6 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
             ✓
@@ -244,7 +316,7 @@ function Formulario({ formulario }: { formulario: FormularioPublico }) {
   }
 
   return (
-    <Moldura organizacao={formulario.organization} semMarca={!formulario.showBranding}>
+    <Moldura organizacao={formulario.organization} semMarca={!formulario.showBranding} css={formulario.customCss} produto={formulario.productName}>
       <form
         onSubmit={(evento) => {
           evento.preventDefault();

@@ -242,8 +242,22 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | Método | Rota | O que faz |
 |---|---|---|
 | GET | `/f/:slug` | Formulário publicado + branding da empresa |
+| GET | `/f/:slug` com `Accept: text/html` | O mesmo, como HTML com as meta tags no `<head>` |
 | POST | `/f/:slug/submit` | Submissão com honeypot e rate limit |
 | POST | `/f/:slug/upload` | Anexo, antes da submissão |
+
+### Marca — `/v1`
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/branding` | Branding gravado, prévia do CSS e o que o plano libera |
+| PATCH | `/branding` | Logo, favicon, cor, meta tags e CSS (`null` limpa o campo) |
+| POST | `/branding/preview-css` | O que sobra do CSS, e por que o resto saiu |
+
+CSS customizado é sanitizado por lista de **permissão** a cada renderização —
+nunca na gravação, para que endurecer a lista valha para o que já está no banco.
+Detalhes e o que fica de fora em
+[`docs/adr/0007`](docs/adr/0007-white-label-e-css-do-cliente.md).
 
 ### Integrações — `/v1`
 
@@ -347,6 +361,7 @@ catálogo público `plans`.
 | [0004](docs/adr/0004-gateway-de-pagamento.md) | Gateway de pagamento e NFS-e |
 | [0005](docs/adr/0005-tls-para-dominios-de-clientes.md) | TLS para domínios de clientes |
 | [0006](docs/adr/0006-api-publica-e-webhooks.md) | API pública por chave e webhooks de saída |
+| [0007](docs/adr/0007-white-label-e-css-do-cliente.md) | White-label e CSS escrito pelo cliente |
 
 ---
 

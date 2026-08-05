@@ -24,6 +24,7 @@ interface UsoResposta {
 const MENU = [
   { rotulo: 'Formulários', destino: '/formularios' },
   { rotulo: 'Equipe', destino: '/equipe' },
+  { rotulo: 'Marca', destino: '/marca' },
   { rotulo: 'Integrações', destino: '/integracoes' },
   { rotulo: 'Cobrança', destino: '/cobranca' },
 ];
