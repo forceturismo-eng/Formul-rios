@@ -12,6 +12,7 @@ import { PaginaRespostas } from './pages/respostas.js';
 import { PaginaCobranca, PaginaEquipe } from './pages/cobranca.js';
 import { PaginaIntegracoes } from './pages/integracoes.js';
 import { PaginaMarca } from './pages/marca.js';
+import { PaginaAnalises } from './pages/analises.js';
 import { PaginaFormularioPublico } from './pages/formulario-publico.js';
 
 const cliente = new QueryClient({
@@ -72,6 +73,9 @@ function Rotas() {
 
   const respostas = matchPath('/formularios/:id/respostas', path);
   if (respostas) return <PaginaRespostas formId={respostas['id'] as string} />;
+
+  const analises = matchPath('/formularios/:id/analises', path);
+  if (analises) return <PaginaAnalises formId={analises['id'] as string} />;
 
   const builder = matchPath('/formularios/:id', path);
   if (builder) return <PaginaBuilder formId={builder['id'] as string} />;

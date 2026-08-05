@@ -246,6 +246,20 @@ A matriz vive em `packages/shared/src/rbac.ts`, exposta como
 | POST | `/f/:slug/submit` | Submissão com honeypot e rate limit |
 | POST | `/f/:slug/upload` | Anexo, antes da submissão |
 
+### Análises com IA — `/v1`
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/ai/settings` | Consentimento, cota e tipos disponíveis |
+| PUT | `/ai/consent` | Liga e desliga. Padrão: desligado |
+| GET | `/forms/:id/ai-analyses` | Análises já feitas |
+| POST | `/forms/:id/ai-analyses` | Pede uma. 200 se havia cache, 202 se foi para a fila |
+
+Os dados pessoais são **sempre** removidos antes do envio — não é opção.
+Nomes, e-mails, CPFs, CNPJs, telefones, CEPs e cartões viram pseudônimos
+estáveis (`[EMAIL_1]`), que preservam a análise sem expor ninguém. Detalhes em
+[`docs/adr/0008`](docs/adr/0008-analises-com-ia-e-redacao-de-pii.md).
+
 ### Marca — `/v1`
 
 | Método | Rota | O que faz |
@@ -320,6 +334,7 @@ catálogo público `plans`.
 | `conflict` | 409 | Duplicidade |
 | `rate_limited` | 429 | Limite de requisições |
 | `quota_exceeded` | 402 | Limite de plano (Fase 3) |
+| `service_unavailable` | 503 | Terceiro fora do ar — temporário, não é bug nosso |
 
 ---
 
@@ -362,6 +377,7 @@ catálogo público `plans`.
 | [0005](docs/adr/0005-tls-para-dominios-de-clientes.md) | TLS para domínios de clientes |
 | [0006](docs/adr/0006-api-publica-e-webhooks.md) | API pública por chave e webhooks de saída |
 | [0007](docs/adr/0007-white-label-e-css-do-cliente.md) | White-label e CSS escrito pelo cliente |
+| [0008](docs/adr/0008-analises-com-ia-e-redacao-de-pii.md) | Análises com IA e redação de PII |
 
 ---
 

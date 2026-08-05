@@ -105,12 +105,20 @@ export function PaginaFormularios() {
                     {dataCurta.format(new Date(formulario.updatedAt))}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      to={`/formularios/${formulario.id}/respostas`}
-                      className="text-sm font-medium text-slate-600 hover:text-slate-900"
-                    >
-                      Ver respostas
-                    </Link>
+                    <div className="flex justify-end gap-3">
+                      <Link
+                        to={`/formularios/${formulario.id}/respostas`}
+                        className="text-sm font-medium text-slate-600 hover:text-slate-900"
+                      >
+                        Ver respostas
+                      </Link>
+                      <Link
+                        to={`/formularios/${formulario.id}/analises`}
+                        className="text-sm font-medium text-slate-600 hover:text-slate-900"
+                      >
+                        Análises
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

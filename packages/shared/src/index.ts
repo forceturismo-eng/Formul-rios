@@ -2,6 +2,7 @@ export * from './plans.js';
 export * from './rbac.js';
 export * from './branding.js';
 export * from './white-label.js';
+export * from './pii.js';
 export * from './money.js';
 export * from './errors.js';
 export * from './br.js';

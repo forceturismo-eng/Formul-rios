@@ -1,5 +1,7 @@
 import { startExportWorker } from '../../api/src/queue/export-worker.js';
 import { startWebhookWorker } from '../../api/src/queue/webhook-worker.js';
+import { startAiWorker } from '../../api/src/queue/ai-worker.js';
+import { registerAiProvider } from '../../api/src/ai/index.js';
 import { closeQueues } from '../../api/src/queue/queues.js';
 import { disconnectPrisma } from '../../api/src/db/prisma.js';
 
@@ -15,7 +17,11 @@ import { disconnectPrisma } from '../../api/src/db/prisma.js';
  * isolamento de tenant seria uma segunda chance de errar.
  */
 
-const workers = [startExportWorker(), startWebhookWorker()];
+// A chave da API de IA vive AQUI, no processo dos workers. A API nunca fala
+// com o provedor: ela prepara e enfileira.
+registerAiProvider();
+
+const workers = [startExportWorker(), startWebhookWorker(), startAiWorker()];
 
 console.info(`workers no ar: ${workers.length}`);
 

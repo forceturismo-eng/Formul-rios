@@ -6,6 +6,8 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { registerErrorHandler } from './http/errors.js';
+import { registerAiProvider } from './ai/index.js';
+import { aiRoutes } from './routes/ai.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes, paymentWebhookRoutes } from './routes/billing.js';
 import { domainRoutes, internalDomainRoutes } from './routes/domains.js';
@@ -26,6 +28,10 @@ import { responseRoutes } from './routes/responses.js';
  */
 
 export async function buildApp(): Promise<FastifyInstance> {
+  // Antes das rotas: `/v1/ai/settings` precisa saber se há provedor para não
+  // oferecer um botão que só falharia.
+  registerAiProvider();
+
   const app = Fastify({
     logger: {
       level: env.isTest ? 'silent' : env.LOG_LEVEL,
@@ -133,6 +139,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(billingRoutes, { prefix: '/v1' });
   await app.register(domainRoutes, { prefix: '/v1' });
   await app.register(integrationRoutes, { prefix: '/v1' });
+  await app.register(aiRoutes, { prefix: '/v1' });
 
   // API pública: autenticada por chave, não por sessão. Prefixo próprio para
   // que a versão dela evolua sem arrastar o painel junto.

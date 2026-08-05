@@ -16,6 +16,8 @@ export const ERROR_CODES = [
   'quota_exceeded',
   'payment_required',
   'email_not_verified',
+  /** Recurso que depende de terceiro e ele não está disponível agora. */
+  'service_unavailable',
   'internal_error',
 ] as const;
 
@@ -45,5 +47,8 @@ export const HTTP_STATUS_BY_CODE: Record<ErrorCode, number> = {
   quota_exceeded: 402,
   payment_required: 402,
   email_not_verified: 403,
+  // 503 e não 500: o problema é temporário e de um terceiro, e a diferença
+  // muda o que a tela diz e o que o cliente faz a seguir.
+  service_unavailable: 503,
   internal_error: 500,
 };
